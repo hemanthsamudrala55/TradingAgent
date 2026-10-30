@@ -1,0 +1,18 @@
+# Symbols scanned by the dashboard (Live "setups" table, default simulation universe).
+# NSE trading symbols. Edit freely.
+symbols:
+  - RELIANCE
+  - HDFCBANK
+  - ICICIBANK
+  - KOTAKBANK
+  - INFY
+  - TCS
+  - LT
+  - BHARTIARTL
+  - AXISBANK
+  - SBIN
+  - ITC
+  - HINDUNILVR
+  - BAJFINANCE
+  - MARUTI
+  - SUNPHARMA

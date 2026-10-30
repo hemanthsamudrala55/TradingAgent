@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trading Agent</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/lightweight-charts.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Trading Agent <span class="sub">Master Instruction research &amp; positional engine</span></div>
+  <div id="conn" class="conn"></div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="analyze" class="on">Analyze</button>
+  <button data-tab="setups">Setups</button>
+  <button data-tab="simulation">Simulation</button>
+  <button data-tab="paper">Paper</button>
+  <button data-tab="live">Live</button>
+  <button data-tab="portfolio">Portfolio vs benchmark</button>
+  <button data-tab="assumptions">Assumptions</button>
+  <button data-tab="instructions">Master Instruction</button>
+</nav>
+
+<main>
+<!-- ANALYZE -->
+<section id="tab-analyze" class="tab on">
+  <form id="ask" class="ask">
+    <input id="sym" placeholder="Symbol e.g. RELIANCE" autocomplete="off" required>
+    <input id="q" placeholder="Ask anything: 'positional trading', 'support and resistance', 'fundamentals', 'ROCE ROE debt-to-equity'…">
+    <select id="src" title="Data source">
+      <option value="">Auto (Kite if connected)</option>
+      <option value="kite">Zerodha Kite</option>
+      <option value="yahoo">Yahoo Finance</option>
+      <option value="upload">My uploaded chart</option>
+    </select>
+    <button type="submit" class="primary">Analyze</button>
+  </form>
+  <details class="upload">
+    <summary>Validate levels on your own chart data (CSV)</summary>
+    <p class="muted">Export daily candles from Kite / TradingView / NSE (columns Date, Open, High, Low, Close, Volume; optional Deliverable %). The levels are then computed from exactly those candles, so you can match them against your chart.</p>
+    <form id="upl" class="row">
+      <input id="upl-sym" placeholder="Symbol" required>
+      <input id="upl-file" type="file" accept=".csv" required>
+      <button type="submit">Upload</button>
+      <span id="upl-msg" class="muted"></span>
+    </form>
+  </details>
+  <div id="out"></div>
+</section>
+
+<!-- SETUPS -->
+<section id="tab-setups" class="tab">
+  <div class="row">
+    <input id="scan-syms" class="grow" placeholder="Symbols (comma separated) - blank = config/watchlist.yaml">
+    <button id="scan-go" class="primary">Scan</button>
+  </div>
+  <div id="scan-out"></div>
+</section>
+
+<!-- SIMULATION -->
+<section id="tab-simulation" class="tab">
+  <div class="row">
+    <input id="sim-syms" class="grow" placeholder="Symbols (blank = watchlist)">
+    <label>From <input id="sim-start" type="date"></label>
+    <label>To <input id="sim-end" type="date"></label>
+    <label>Capital <input id="sim-cap" type="number" value="50000" step="1000"></label>
+    <button id="sim-go" class="primary">Run simulation</button>
+  </div>
+  <div id="sim-out"></div>
+</section>
+
+<!-- PAPER -->
+<section id="tab-paper" class="tab">
+  <div class="row">
+    <input id="pap-syms" class="grow" placeholder="Symbols (blank = watchlist)">
+    <label>Paper start <input id="pap-start" type="date"></label>
+    <label>Capital <input id="pap-cap" type="number" value="50000" step="1000"></label>
+    <button id="pap-go" class="primary">Update paper portfolio</button>
+  </div>
+  <div id="pap-out"></div>
+</section>
+
+<!-- LIVE -->
+<section id="tab-live" class="tab">
+  <div id="live-out"></div>
+</section>
+
+<!-- PORTFOLIO -->
+<section id="tab-portfolio" class="tab">
+  <div class="card">
+    <h3>Your holdings</h3>
+    <table class="tbl" id="lots"><thead><tr><th>Symbol</th><th>Purchase date</th><th>Quantity</th><th>Avg buy price</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="row">
+      <button id="lot-add">+ Add row</button>
+      <button id="lot-kite">Load from Zerodha</button>
+      <label>Valuation date <input id="pf-vdate" type="date"></label>
+      <button id="pf-go" class="primary">Compare with benchmarks</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>What if I had invested…</h3>
+    <div class="row">
+      <input id="wi-sym" placeholder="Symbol">
+      <label>Amount ₹ <input id="wi-amt" type="number" value="100000"></label>
+      <label>Months ago <select id="wi-m"><option>1</option><option>2</option><option selected>3</option><option>6</option><option>12</option><option>36</option><option>60</option></select></label>
+      <button id="wi-go" class="primary">Calculate</button>
+    </div>
+  </div>
+  <div id="pf-out"></div>
+</section>
+
+<section id="tab-assumptions" class="tab"><pre id="assump" class="pre"></pre></section>
+<section id="tab-instructions" class="tab"><div id="instr" class="md"></div></section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

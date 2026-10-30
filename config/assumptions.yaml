@@ -1,0 +1,96 @@
+# ---------------------------------------------------------------------------
+# ASSUMPTIONS
+#
+# The Master Instruction (docs/MASTER_INSTRUCTION.md) names WHAT to analyse
+# (EMA 21/63/200, RSI 14, volume vs 20-day average, candles over 60 sessions,
+# support/resistance, gaps, entry / stop / T1 / T2 / risk-reward) but gives no
+# numeric thresholds. Every number below is an assumption chosen by the
+# developer, not a rule from the document. Change any value here; nothing is
+# hard-coded elsewhere. The dashboard shows this file on its Assumptions page.
+# ---------------------------------------------------------------------------
+
+indicators:            # fixed by the Master Instruction - do not change
+  ema_fast: 21
+  ema_mid: 63
+  ema_slow: 200
+  rsi_period: 14
+  volume_avg_days: 20
+  candle_lookback: 60
+  atr_period: 14       # assumption: ATR used to size zones, stops and "overextended"
+
+trend:
+  slope_lookback: 10           # bars used to decide whether an EMA is rising/falling
+  flat_slope_pct: 0.25         # |EMA change over slope_lookback| below this % = flattening
+  overextended_pct_above_ema21: 8.0   # price this % above EMA 21 = overextended
+  overextended_atr_above_ema21: 2.5   # ...or this many ATRs above EMA 21
+
+rsi:
+  overbought: 70
+  oversold: 30
+  midline: 50
+  divergence_lookback: 60      # bars searched for the two pivots that form a divergence
+
+volume:
+  breakout_multiple: 1.5       # breakout volume must be >= this x 20-day average
+  high_volume_multiple: 1.5    # volume "expansion" threshold
+  accumulation_window: 20      # bars used to compare up-day vs down-day volume
+  accumulation_ratio: 1.2      # up-day avg volume >= 1.2 x down-day avg = accumulation (and vice versa)
+
+gaps:
+  significant_gap_pct: 2.0     # |open - prev close| / prev close
+  chase_gap_pct: 3.0           # gap-up above this is checked for "avoid chasing"
+
+support_resistance:
+  lookback_days: 250           # about one year of daily candles
+  pivot_bars: 5                # a swing high/low must be the extreme of 5 bars on each side
+  zone_tolerance_atr: 0.6      # pivots within 0.6 x ATR of each other form one zone
+  zone_tolerance_min_pct: 0.75 # ...but never tighter than 0.75 % of price
+  strong_min_touches: 3        # a zone touched 3+ times is "strong" / "major"
+  max_levels_each_side: 4
+  weekly_pivot_bars: 3         # weekly swing points confirm daily zones
+  consolidation_bars: 20       # last 20 sessions form a consolidation zone when...
+  consolidation_max_atr: 3.0   # ...their high-low range is <= 3 x ATR
+
+positional:
+  assumed_holding_period: "2 to 8 weeks (daily + weekly charts)"
+  entry_zone_above_support_atr: 0.75   # pullback entry zone = support zone level up to zone high + 0.75 ATR
+  # Pullback confirmation (RSI < 30 is not an automatic buy - support must visibly hold):
+  #   today is a bullish reversal (close > open AND close > previous high, or a hammer /
+  #   bullish engulfing / morning star today), RSI is rising, and no bearish divergence.
+  pullback_needs_reversal_candle: true
+  stop_buffer_atr: 0.5         # stop goes 0.5 ATR below the support zone's low
+  max_stop_pct: 8.0            # setups needing a wider stop than 8 % are rejected
+  min_risk_reward: 2.0         # T1 must offer at least 2R to rate the setup ENTER
+  breakout_buffer_pct: 0.25    # breakout entry = resistance + 0.25 %
+  projected_t1_r: 2.0          # no resistance overhead (price discovery): T1 = entry + 2R
+  projected_t2_r: 3.0          # ... and T2 = entry + 3R, labelled "projected"
+  # A daily close below EMA 63 invalidates a trade entered above EMA 63. A deeper pullback
+  # entered between EMA 63 and EMA 200 is invalidated by a close below EMA 200 instead.
+  invalidation_close_below: ema_mid
+
+simulation:
+  starting_capital: 50000
+  risk_per_trade_pct: 1.0      # rupees risked per trade (entry - stop) x qty
+  max_position_pct: 20.0
+  max_open_positions: 5
+  t1_exit_fraction: 0.5        # sell half at T1, move stop to entry (break-even)
+  charges_pct_per_side: 0.12   # STT + exchange + SEBI + stamp + GST, approx. for delivery
+  dp_charge_per_sell: 15.93    # CDSL DP charge per scrip per sell day
+  slippage_pct: 0.05
+
+portfolio:
+  cagr_min_days: 365           # CAGR shown only when holding period >= 1 year
+  benchmarks:
+    - id: smallcap250_tri
+      name: "Nifty Smallcap 250 TRI"
+      kind: nifty_tri
+      index_name: "NIFTY SMALLCAP 250"
+    - id: smallcap100_tri
+      name: "Nifty Smallcap 100 TRI"
+      kind: nifty_tri
+      index_name: "NIFTY SMALLCAP 100"
+    - id: motilal_smallcap_direct
+      name: "Motilal Oswal Small Cap Fund - Direct Plan - Growth"
+      kind: mf_nav
+      search: "Motilal Oswal Small Cap Fund"
+      plan_must_contain: ["direct", "growth"]
