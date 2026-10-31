@@ -40,6 +40,15 @@ def normalise(df: pd.DataFrame) -> pd.DataFrame:
     return df[~df.index.duplicated(keep="last")][COLS + (["deliv_pct"] if "deliv_pct" in df else [])]
 
 
+def normalise_hourly(df: pd.DataFrame) -> pd.DataFrame:
+    """Like normalise, but keeps the time of day, as Indian clock time."""
+    df = df.rename(columns=lambda c: str(c).strip().lower()).rename(columns={"datetime": "date"})
+    idx = pd.to_datetime(df["date"], utc=True).dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+    df = df.set_index(pd.DatetimeIndex(idx))[COLS].apply(pd.to_numeric, errors="coerce")
+    df = df.dropna(subset=["close"]).sort_index()
+    return df[~df.index.duplicated(keep="last")]
+
+
 def read_csv(src) -> pd.DataFrame:
     """CSV exported from Kite / TradingView / NSE / Excel. src: path or bytes."""
     if isinstance(src, (bytes, bytearray)):

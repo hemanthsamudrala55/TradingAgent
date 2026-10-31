@@ -3,9 +3,19 @@ from __future__ import annotations
 
 import pandas as pd
 
-from . import normalise
+from . import normalise, normalise_hourly
 
 SOURCE = "Yahoo Finance (NSE)"
+
+
+def hourly(symbol: str) -> pd.DataFrame:
+    """Yahoo keeps about two years of hourly candles."""
+    import yfinance as yf
+    t = symbol if "." in symbol or symbol.startswith("^") else f"{symbol}.NS"
+    df = yf.Ticker(t).history(period="730d", interval="60m", auto_adjust=False)
+    if df.empty:
+        raise LookupError(f"No Yahoo hourly data for {t}")
+    return normalise_hourly(df.reset_index())
 
 
 def daily(symbol: str, start: str, end: str | None = None) -> pd.DataFrame:

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Trader</title>
+<link rel="stylesheet" href="/static/simple.css">
+<script src="/static/lightweight-charts.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="brand">Simple Trader</div>
+    <nav id="tabs" aria-label="Main">
+      <button data-tab="stocks">Stocks</button>
+      <button data-tab="robot">Robot</button>
+      <button data-tab="activity">Activity</button>
+    </nav>
+    <div id="robot-status" class="status"></div>
+    <div id="conn" class="conn"></div>
+  </div>
+</header>
+
+<main>
+  <section id="tab-stocks" class="tab">
+    <form id="search" class="search" autocomplete="off">
+      <label for="q">Find a stock</label>
+      <input id="q" placeholder="Type a name, like TCS or Infosys">
+      <button class="dark" type="submit">Show</button>
+    </form>
+    <div id="suggest" class="chips"></div>
+    <div id="chart-error" class="error" role="alert" hidden></div>
+    <div class="columns">
+      <section class="card chart-card" aria-label="Price chart">
+        <div class="headline"><h1 id="stock"></h1><div id="price" class="price"></div><div id="change"></div></div>
+        <div id="frames" class="frames" role="group" aria-label="Candle size"></div>
+        <p id="hint" class="muted small"></p>
+        <div id="chart"></div>
+        <div id="readout" class="readout"></div>
+        <p id="source" class="muted small"></p>
+      </section>
+      <aside class="side">
+        <section class="card">
+          <h2 class="eyebrow">What the robot sees</h2>
+          <div id="view-title" class="view-title"></div>
+          <p id="view-text"></p>
+          <div class="level ceiling"><span>Ceiling, price often stops here</span><b id="ceiling"></b></div>
+          <div class="level floor"><span>Floor, price often bounces here</span><b id="floor"></b></div>
+          <p class="muted small">Ceiling and floor come from daily candles.</p>
+          <button id="watch" class="wide"></button>
+        </section>
+        <section class="card">
+          <h2>How to read a candle</h2>
+          <div class="key"><i class="up"></i>Price finished higher</div>
+          <div class="key"><i class="down"></i>Price finished lower</div>
+          <p class="muted small">Thin lines show the highest and lowest price. Bars below show how many shares traded.</p>
+        </section>
+      </aside>
+    </div>
+  </section>
+
+  <section id="tab-robot" class="tab narrow">
+    <section class="card summary">
+      <h1 id="rule-title"></h1>
+      <p id="rule-text"></p>
+      <button id="pause"></button>
+      <p class="small">Stopping halts new decisions. It does not close trades already open.</p>
+    </section>
+    <section class="card">
+      <h2>1. How should the robot act?</h2>
+      <div id="modes" class="stack"></div>
+    </section>
+    <section class="card">
+      <h2><label for="money">2. How much money can it use?</label></h2>
+      <input id="money" inputmode="numeric" placeholder="Amount in rupees">
+      <div id="money-error" class="error" role="alert" hidden></div>
+    </section>
+    <section class="card">
+      <h2>3. How much can one trade lose, at most?</h2>
+      <div id="risks" class="row"></div>
+      <p class="muted small">A sudden price gap can make the real loss bigger than this limit.</p>
+    </section>
+    <section class="card">
+      <h2>4. Which stocks can it trade?</h2>
+      <div id="stocks" class="chips"></div>
+      <p class="muted small">Add more from the Stocks screen.</p>
+    </section>
+  </section>
+
+  <section id="tab-activity" class="tab narrow">
+    <div class="between"><h1>What the robot did</h1><button id="check">Check now</button></div>
+    <div id="check-note" class="muted small"></div>
+    <section class="card totals" id="totals"></section>
+    <div id="open"></div>
+    <div id="pending"></div>
+    <div id="log"></div>
+  </section>
+</main>
+
+<footer><a href="/advanced">Advanced view</a><span class="muted">No real orders are ever sent from this app.</span></footer>
+<script src="/static/simple.js"></script>
+</body>
+</html>

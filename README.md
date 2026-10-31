@@ -19,7 +19,19 @@ python -m web.app               # open http://127.0.0.1:5000
 python -m pytest                # tests
 ```
 
-## Dashboard
+## Simple view
+
+The main page has three plain-language screens:
+
+| Screen | What it does |
+|---|---|
+| Stocks | Search any NSE stock. Candles and volume by Hour, Day, Month, Quarter, Half-year or Year. |
+| Robot | Set the mode, money, loss limit and stocks. Practice and Ask me first work. Automatic is locked. |
+| Activity | Every decision and its reason, with Approve or Skip for suggestions. |
+
+The robot only uses pretend money. It has no code that sends orders, even for approved trades. It runs while the dashboard is open and judges each stock once per finished daily candle.
+
+## Advanced view (`/advanced`)
 
 | Tab | What it does |
 |---|---|

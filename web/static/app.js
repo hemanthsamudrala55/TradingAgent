@@ -39,9 +39,7 @@ async function loadStatus() {
   const k = STATUS.kite;
   $("#conn").innerHTML = k.connected
     ? `${pill("Zerodha connected", "up")} <span class="muted">${esc(k.user || "")}</span>`
-    : STATUS.kite_configured
-      ? `${pill("Zerodha not connected", "warn")} <a href="/kite/login">Connect Zerodha</a>`
-      : `${pill("Zerodha not configured", "")} <span class="muted small">add KITE_API_KEY to .env</span>`;
+    : `${pill("Zerodha not connected", "warn")} <a href="/kite/login" target="_blank" rel="noopener">Connect Zerodha</a>`;
   $("#conn").innerHTML += ` <span class="muted small">Data: ${STATUS.default_source === "kite" ? "Kite" : "Yahoo"}</span>`;
 }
 
@@ -377,7 +375,7 @@ async function loadLive() {
     const r = await api("/api/live");
     if (!r.connected) {
       out.innerHTML = card("Live · Zerodha", `<p>Not connected${r.reason ? `: <span class="muted">${esc(r.reason)}</span>` : ""}.</p>
-        <p>${STATUS.kite_configured ? `<a href="/kite/login"><button class="primary">Connect Zerodha</button></a>` : "Add KITE_API_KEY and KITE_API_SECRET to .env, then restart the dashboard."}</p>
+        <p><a href="/kite/login" target="_blank" rel="noopener"><button class="primary">Connect Zerodha</button></a></p>
         <p class="muted small">The live view is read-only: it shows holdings, positions and a HOLD / EXIT check against each stop. It never places orders.</p>`);
       return;
     }
@@ -463,5 +461,6 @@ async function loadInstructions() { $("#instr").innerHTML = md((await api("/api/
   $("#sim-start").value = ago(12); $("#sim-end").value = iso(today); $("#pap-start").value = ago(1);
   addLot();
   loadStatus().catch(() => {});
+  window.addEventListener("focus", () => { if (!STATUS.kite?.connected) loadStatus().catch(() => {}); });  // back from the Zerodha login tab
   show((location.hash || "#analyze").slice(1));
 })();

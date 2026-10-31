@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -14,7 +16,7 @@ from flask import Flask, jsonify, redirect, render_template, request
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from master_agent import config, fundamentals, portfolio, positional, router, simulate, technical  # noqa: E402
+from master_agent import config, frames, fundamentals, levels, portfolio, positional, robot, router, simulate, technical  # noqa: E402
 from master_agent import data as mdata  # noqa: E402
 from master_agent.data import benchmarks, kite, nse_delivery, yahoo  # noqa: E402
 
@@ -92,14 +94,18 @@ def candles_payload(df: pd.DataFrame, cfg) -> dict:
 
 
 @app.get("/")
+def simple():
+    return render_template("simple.html")
+
+
+@app.get("/advanced")
 def index():
     return render_template("index.html")
 
 
 @app.get("/api/status")
 def status():
-    return ok({"kite": kite.connected(), "kite_configured": bool(os.environ.get("KITE_API_KEY")),
-               "uploads": sorted(_uploads), "default_source": default_source(),
+    return ok({"kite": kite.connected(), "uploads": sorted(_uploads), "default_source": default_source(),
                "watchlist": yaml.safe_load((ROOT / "config" / "watchlist.yaml").read_text())["symbols"]})
 
 
@@ -257,7 +263,7 @@ def kite_callback():
         kite.complete_login(tok)
     except Exception as e:  # noqa: BLE001
         return err(e)
-    return redirect("/#live")
+    return redirect("/advanced#live")
 
 
 @app.get("/api/live")
@@ -365,5 +371,109 @@ def holdings_as_lots():
                          "price": h["average_price"], "date": ""} for h in kite.holdings()]})
 
 
+def _prices(sym: str, fetch) -> tuple[pd.DataFrame, str, str | None]:
+    """Zerodha when connected, Yahoo otherwise or if Zerodha fails. Returns (frame, source name, note)."""
+    src = default_source()
+    if src == "kite":
+        try:
+            return fetch(sym, "kite"), source_name("kite"), None
+        except Exception as e:  # noqa: BLE001
+            return fetch(sym, "yahoo"), source_name("yahoo"), f"Zerodha could not supply this ({e}), so these are Yahoo prices."
+    return fetch(sym, "yahoo"), source_name("yahoo"), None
+
+
+def _history(sym: str, src: str) -> pd.DataFrame:
+    return daily(sym, src, "2000-01-01")
+
+
+def _hourly(sym: str, src: str) -> pd.DataFrame:
+    key = (sym, src, "hourly")
+    hit = _cache.get(key)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    df = (kite if src == "kite" else yahoo).hourly(sym)
+    _cache[key] = (time.time(), df)
+    return df
+
+
+@app.get("/api/chart")
+def api_chart():
+    sym, frame = request.args.get("symbol", "").strip().upper(), request.args.get("frame", "Day")
+    if not re.fullmatch(r"[A-Z0-9&\-.]{1,30}", sym):
+        return err("Enter a stock symbol, like TCS")
+    if frame not in frames.FRAMES:
+        return err("Unknown candle size")
+    try:
+        hist, source, note = _prices(sym, _history)
+        rows = _hourly(sym, "kite" if source == kite.SOURCE else "yahoo") if frame == "Hour" else frames.resample(hist, frame)
+    except LookupError:
+        return err(f"No prices found for {sym}. Check the name and try again.", 404)
+    except Exception as e:  # noqa: BLE001
+        return err(f"Could not load prices for {sym}: {e}", 502)
+    cfg = config.load()
+    zones = levels.find_levels(hist, cfg)
+    return ok({"symbol": sym, "frame": frame, "candles": frames.payload(rows, frame), "source": source, "note": note,
+               "view": robot.plain_view(positional.plan(hist, cfg)),
+               "floor": (zones.get("immediate_support") or {}).get("level"),
+               "ceiling": (zones.get("immediate_resistance") or {}).get("level")})
+
+
+@app.get("/api/search")
+def api_search():
+    q = request.args.get("q", "").strip()
+    if len(q) < 2:
+        return ok({"results": []})
+    try:
+        import yfinance as yf
+        quotes = yf.Search(q, max_results=10, news_count=0).quotes
+    except Exception:  # noqa: BLE001 - suggestions are optional, the typed symbol still works
+        return ok({"results": []})
+    return ok({"results": [{"symbol": x["symbol"][:-3], "name": x.get("longname") or x.get("shortname") or ""}
+                           for x in quotes if str(x.get("symbol", "")).endswith(".NS")]})
+
+
+def _robot_daily(sym: str) -> pd.DataFrame:
+    start = (pd.Timestamp.today() - pd.DateOffset(years=3)).strftime("%Y-%m-%d")
+    return _prices(sym, lambda s, src: daily(s, src, start))[0]
+
+
+@app.get("/api/robot")
+def api_robot():
+    return ok(robot.load())
+
+
+@app.post("/api/robot/settings")
+def api_robot_settings():
+    try:
+        return ok(robot.update_settings(request.get_json(force=True)))
+    except (TypeError, ValueError) as e:
+        return err(e)
+
+
+@app.post("/api/robot/check")
+def api_robot_check():
+    res = robot.check(_robot_daily)
+    return ok({**res["state"], "errors": res["errors"]})
+
+
+@app.post("/api/robot/pending/<int:pending_id>")
+def api_robot_answer(pending_id: int):
+    try:
+        return ok(robot.answer(pending_id, bool(request.get_json(force=True).get("approve"))))
+    except LookupError as e:
+        return err(e, 404)
+
+
+def _robot_loop():
+    """While the dashboard is open, check every 15 minutes. Each stock acts once per finished candle."""
+    while True:
+        try:
+            robot.check(_robot_daily)
+        except Exception as e:  # noqa: BLE001 - keep the loop alive
+            print("Robot check failed:", e, file=sys.stderr)
+        time.sleep(900)
+
+
 if __name__ == "__main__":
+    threading.Thread(target=_robot_loop, daemon=True).start()
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 5000)), debug=False)

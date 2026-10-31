@@ -14,11 +14,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import normalise
+from . import kite_mcp, normalise, normalise_hourly
 
 SOURCE = "Zerodha Kite Connect"
 SESSION_FILE = Path(__file__).resolve().parents[2] / "state" / "kite_session.json"
 _tokens: dict[str, int] = {}
+
+
+def _provider():
+    """Without Kite Connect keys, the same calls go to Zerodha's hosted server."""
+    return None if os.environ.get("KITE_API_KEY") else kite_mcp
 
 
 def _client():
@@ -35,6 +40,8 @@ def _client():
 
 
 def login_url() -> str:
+    if _provider():
+        return _provider().login_url()
     return _client().login_url()
 
 
@@ -48,6 +55,8 @@ def complete_login(request_token: str) -> dict:
 
 
 def connected() -> dict:
+    if _provider():
+        return _provider().connected()
     try:
         p = _client().profile()
         return {"connected": True, "user": p.get("user_name"), "user_id": p.get("user_id")}
@@ -65,6 +74,8 @@ def token(symbol: str, exchange: str = "NSE") -> int:
 
 
 def daily(symbol: str, start: str, end: str | None = None) -> pd.DataFrame:
+    if _provider():
+        return _provider().daily(symbol, start, end)
     k, tok = _client(), token(symbol)
     s = datetime.fromisoformat(start)
     e = datetime.fromisoformat(end) if end else datetime.now()
@@ -78,18 +89,28 @@ def daily(symbol: str, start: str, end: str | None = None) -> pd.DataFrame:
     return normalise(pd.DataFrame(rows))
 
 
+def hourly(symbol: str) -> pd.DataFrame:
+    if _provider():
+        return _provider().hourly(symbol)
+    e = datetime.now()
+    rows = _client().historical_data(token(symbol), e - timedelta(days=380), e, "60minute")
+    if not rows:
+        raise LookupError(f"No Kite hourly candles for {symbol}")
+    return normalise_hourly(pd.DataFrame(rows))
+
+
 def ltp(symbols: list[str]) -> dict[str, float]:
     q = _client().ltp([f"NSE:{s}" for s in symbols])
     return {k.split(":", 1)[1]: v["last_price"] for k, v in q.items()}
 
 
 def holdings() -> list[dict]:
-    return _client().holdings()
+    return _provider().holdings() if _provider() else _client().holdings()
 
 
 def positions() -> list[dict]:
-    return _client().positions().get("net", [])
+    return _provider().positions() if _provider() else _client().positions().get("net", [])
 
 
 def gtts() -> list[dict]:
-    return _client().get_gtts()
+    return _provider().gtts() if _provider() else _client().get_gtts()

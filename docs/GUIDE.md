@@ -78,7 +78,11 @@ You should see `37 passed`.
 
 ## 3. Connect Zerodha (live data)
 
-Without Zerodha the dashboard uses **Yahoo Finance** for prices. To use Zerodha:
+Without Zerodha the dashboard uses **Yahoo Finance** for prices.
+
+**No keys (default):** click **Connect Zerodha** (top right), log in on Zerodha's page, then return to the dashboard. With no `KITE_API_KEY` set, the dashboard uses Zerodha's hosted Kite MCP server (`master_agent/data/kite_mcp.py`). That server also offers order tools, so the client only allows a fixed list of read-only ones. The login session is saved in `state/kite_mcp_session.json`, which is excluded from Git, and expires like any Zerodha login.
+
+**Your own Kite Connect app (used instead when `KITE_API_KEY` is set):**
 
 1. Create a Kite Connect app at <https://developers.kite.trade> (Kite Connect is a paid Zerodha API subscription).
 2. In the app settings, set the **Redirect URL** to `http://127.0.0.1:5000/kite/callback`.
