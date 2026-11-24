@@ -1,0 +1,13 @@
+# Caddy gets and renews the HTTPS certificate by itself.
+# setup.sh replaces DOMAIN_HERE with your domain, or with <ip-with-dashes>.sslip.io if you have none.
+DOMAIN_HERE {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8000
+}

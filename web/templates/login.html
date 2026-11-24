@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner login · Simple Trader</title>
+<link rel="stylesheet" href="/static/simple.css">
+</head>
+<body>
+<main class="narrow">
+  <section class="card login">
+    <h1>Owner login</h1>
+    <p class="muted">Visitors can see the Stocks screen without logging in. The robot and Zerodha need the owner password.</p>
+    {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button class="dark wide" type="submit">Log in</button>
+    </form>
+    <a href="/">Back to the charts</a>
+  </section>
+</main>
+</body>
+</html>

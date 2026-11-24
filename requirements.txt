@@ -7,3 +7,4 @@ beautifulsoup4>=4.12
 yfinance>=0.2.40
 kiteconnect>=5.0
 pytest>=8.0
+waitress>=3.0

@@ -248,13 +248,21 @@ $("#check").addEventListener("click", async () => {
 });
 
 /* ---------- connection ---------- */
-let watchlist = [], conn = {};
+let watchlist = [], conn = {}, owner = false;
 async function loadStatus() {
   const s = await api("/api/status");
   watchlist = s.watchlist || [];
+  owner = s.owner;
+  document.body.classList.toggle("visitor", !owner);
+  if (!owner) {
+    $("#conn").innerHTML = `<a href="/login">Owner login</a>`;
+    if (!location.hash.startsWith("#stocks")) show("stocks");
+    return;
+  }
   conn = { orders_ready: s.orders_ready, kite_keys: s.kite_keys, kite_connected: s.kite.connected };
-  $("#conn").innerHTML = s.kite.connected ? `<span class="dot"></span>Zerodha connected`
-    : `<a href="/kite/login" target="_blank" rel="noopener">Connect Zerodha</a>`;
+  const logout = s.auth ? `<form method="post" action="/logout"><button class="link" type="submit">Log out</button></form>` : "";
+  $("#conn").innerHTML = (s.kite.connected ? `<span class="dot"></span>Zerodha connected`
+    : `<a href="/kite/login" target="_blank" rel="noopener">Connect Zerodha</a>`) + logout;
   if (bot) renderBot();
 }
 window.addEventListener("focus", () => loadStatus().catch(() => {}));
@@ -264,6 +272,6 @@ window.addEventListener("focus", () => loadStatus().catch(() => {}));
   show(["stocks", "robot", "activity"].includes(hash) ? hash : "stocks");
   renderFrames();
   await loadStatus().catch(() => {});
-  setBot(await api("/api/robot"));
+  if (owner) setBot(await api("/api/robot"));
   loadChart();
 })();

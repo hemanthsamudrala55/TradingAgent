@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from master_agent import config, frames, fundamentals, levels, portfolio, positional, robot, router, simulate, technical  # noqa: E402
 from master_agent import data as mdata  # noqa: E402
 from master_agent.data import benchmarks, kite, nse_delivery, yahoo  # noqa: E402
+from web import auth  # noqa: E402
 
 
 def _load_env():
@@ -32,6 +33,7 @@ def _load_env():
 
 _load_env()
 app = Flask(__name__)
+auth.install(app)
 _cache: dict = {}
 _uploads: dict[str, pd.DataFrame] = {}
 
@@ -105,8 +107,11 @@ def index():
 
 @app.get("/api/status")
 def status():
-    return ok({"kite": kite.connected(), "orders_ready": kite.orders_ready(), "kite_keys": bool(os.environ.get("KITE_API_KEY")), "uploads": sorted(_uploads), "default_source": default_source(),
-               "watchlist": yaml.safe_load((ROOT / "config" / "watchlist.yaml").read_text())["symbols"]})
+    watchlist = yaml.safe_load((ROOT / "config" / "watchlist.yaml").read_text())["symbols"]
+    if not auth.is_owner():
+        return ok({"owner": False, "auth": True, "watchlist": watchlist})
+    return ok({"owner": True, "auth": auth.enabled(), "kite": kite.connected(), "orders_ready": kite.orders_ready(), "kite_keys": bool(os.environ.get("KITE_API_KEY")), "uploads": sorted(_uploads), "default_source": default_source(),
+               "watchlist": watchlist})
 
 
 @app.get("/api/assumptions")
@@ -372,8 +377,9 @@ def holdings_as_lots():
 
 
 def _prices(sym: str, fetch) -> tuple[pd.DataFrame, str, str | None]:
-    """Zerodha when connected, Yahoo otherwise or if Zerodha fails. Returns (frame, source name, note)."""
-    src = default_source()
+    """Zerodha when connected, Yahoo otherwise or if Zerodha fails. Returns (frame, source name, note).
+    Visitors always get Yahoo: Zerodha's terms do not allow showing its data to others."""
+    src = default_source() if auth.is_owner() else "yahoo"
     if src == "kite":
         try:
             return fetch(sym, "kite"), source_name("kite"), None

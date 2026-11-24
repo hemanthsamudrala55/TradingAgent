@@ -45,6 +45,13 @@ Since 1 April 2026 Zerodha accepts API orders only from a static IP address regi
 
 Stopping the robot halts new decisions and approvals. It does not cancel orders or GTTs already at Zerodha. Real trade sell prices are not read back, so for the daily loss limit a closed real trade counts as a full loss until you check Kite.
 
+## Put it online
+
+[deploy/DEPLOY.md](deploy/DEPLOY.md) sets it up on a small Ubuntu server with HTTPS
+(`deploy/setup.sh`, Caddy, systemd). Run `python -m web.set_password` there first: the server
+(`python -m web.serve`) will not start without an owner password. Visitors see only the Stocks
+screen with Yahoo prices. The robot, its trades and Zerodha need the owner login.
+
 ## Advanced view (`/advanced`)
 
 | Tab | What it does |

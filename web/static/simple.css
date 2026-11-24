@@ -77,3 +77,8 @@ main { max-width: 1160px; margin: auto; padding: 20px; }
 footer { max-width: 1160px; margin: auto; padding: 8px 20px 28px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 14px; }
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.visitor [data-tab="robot"], .visitor [data-tab="activity"], .visitor #robot-status, .visitor #watch, .visitor .owner-only { display: none !important; }
+button.link { min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--floor); font-weight: 600; text-decoration: underline; }
+button.link:hover:not(:disabled) { background: none; }
+.login { margin-top: 48px; display: flex; flex-direction: column; gap: 14px; }
+.login form { display: flex; flex-direction: column; gap: 10px; } .login label { font-weight: 600; }
