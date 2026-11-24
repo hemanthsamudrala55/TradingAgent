@@ -97,9 +97,67 @@ def test_ask_mode_waits_for_approval_then_uses_pretend_money(store):
     df = daily_rows([(100, 101, 99, 100, 1)])
     s = robot.check(lambda _: df, plan=lambda d: enter_plan())["state"]
     assert s["positions"] == [] and len(s["pending"]) == 1
-    s = robot.answer(s["pending"][0]["id"], True)
+    x = s["pending"][0]
+    s = robot.answer(x["id"], True, x["fingerprint"])
     assert s["pending"] == [] and s["positions"][0]["qty"] == 200
     assert "no real order" in s["activity"][0]["why"]
+
+
+def ask_for_one(store):
+    robot.update_settings({"mode": "ask"})
+    df = daily_rows([(100, 101, 99, 100, 1)])
+    return robot.check(lambda _: df, plan=lambda d: enter_plan())["state"]["pending"][0]
+
+
+def test_approve_needs_the_exact_suggestion_shown(store):
+    x = ask_for_one(store)
+    with pytest.raises(ValueError):
+        robot.answer(x["id"], True, "something-else")
+    with pytest.raises(ValueError):
+        robot.answer(x["id"], True)
+    assert len(robot.load()["pending"]) == 1          # still open, nothing bought
+
+
+def test_approve_checks_the_limits_again(store):
+    x = ask_for_one(store)
+    s = robot.load()
+    s["closed"].append({"symbol": "OLD", "bought": "2026-01-01", "date": x["date"], "gain": -2500})
+    robot._save(s)
+    s = robot.answer(x["id"], True, x["fingerprint"])
+    assert s["positions"] == [] and s["activity"][0]["tag"] == "Blocked by your limits"
+
+
+def test_daily_loss_limit_blocks_new_buys(store):
+    s = robot.load()
+    s["closed"].append({"symbol": "OLD", "bought": "2026-01-01", "date": "2026-01-05", "gain": -2500})
+    robot._save(s)
+    df = daily_rows([(100, 101, 99, 100, 1)])         # dated 2026-01-05; 2500 lost + 1000 at risk > 3% of 100000
+    s = robot.check(lambda _: df, plan=lambda d: enter_plan())["state"]
+    assert s["positions"] == [] and "daily limit" in s["activity"][0]["why"]
+
+
+def test_trades_per_day_limit(store):
+    robot.update_settings({"stocks": ["AAA", "BBB", "CCC"], "max_trades_per_day": 2})
+    df = daily_rows([(100, 101, 99, 100, 1)])
+    s = robot.check(lambda _: df, plan=lambda d: enter_plan())["state"]
+    assert [p["symbol"] for p in s["positions"]] == ["AAA", "BBB"]
+    assert "limit for one day" in s["activity"][0]["why"]
+
+
+def test_open_trades_limit(store):
+    robot.update_settings({"max_open": 3})
+    s = robot.load()
+    s["positions"] = [{"symbol": k, "qty": 1, "entry": 100, "stop": 50, "target": 200, "date": "2025-12-01"} for k in ("X", "Y", "Z")]
+    robot._save(s)
+    df = daily_rows([(100, 101, 99, 100, 1)])           # never reaches 50 or 200, so all three stay open
+    s = robot.check(lambda _: df, plan=lambda d: enter_plan())["state"]
+    assert len(s["positions"]) == 3 and "already open" in s["activity"][0]["why"]
+
+
+def test_limit_settings_only_accept_listed_values(store):
+    with pytest.raises(ValueError):
+        robot.update_settings({"daily_loss_pct": 50})
+    assert robot.update_settings({"daily_loss_pct": 5})["daily_loss_pct"] == 5
 
 
 def test_stopped_robot_does_nothing(store):

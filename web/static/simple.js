@@ -136,6 +136,12 @@ const MODES = [
   ["auto", "Automatic (locked)", "Would trade on its own. Locked, because real orders are not built yet."],
 ];
 
+const LIMITS = [
+  ["daily_loss_pct", "Most it can lose in one day", [2, 3, 5].map(p => [p, p + "%", s => whole(s.money * p / 100)])],
+  ["max_trades_per_day", "New trades in one day", [[1, "1", () => "Slowest"], [2, "2", () => "Steady"], [3, "3", () => "Busier"]]],
+  ["max_open", "Trades open at once", [[3, "3", () => "Fewer stocks"], [5, "5", () => "Balanced"], [8, "8", () => "More stocks"]]],
+];
+
 function setBot(s) { bot = s; renderBot(); }
 const save = patch => api("/api/robot/settings", patch).then(setBot);
 
@@ -156,11 +162,13 @@ function renderBot() {
   $("#rule-title").textContent = s.paused ? "The robot is stopped" : "Your robot, in one sentence";
   const verb = s.mode === "ask" ? "will suggest trades and wait for your approval" : "will practise with pretend money";
   $("#rule-text").textContent = s.paused ? "It will not suggest or make any trades until you press Start."
-    : `It ${verb}, using up to ${whole(s.money)} on ${list}, and aims to risk at most ${whole(cap)} on one trade.`;
+    : `It ${verb}, using up to ${whole(s.money)} on ${list}, and aims to risk at most ${whole(cap)} on one trade, ${whole(s.money * s.daily_loss_pct / 100)} in one day, with at most ${s.max_trades_per_day} new trade${s.max_trades_per_day === 1 ? "" : "s"} a day.`;
   $("#pause").textContent = s.paused ? "Start the robot" : "Stop everything";
   $("#modes").innerHTML = MODES.map(([id, title, text]) => `<button class="option ${s.mode === id ? "picked" : ""}" data-mode="${id}" aria-pressed="${s.mode === id}" ${id === "auto" ? "disabled" : ""}><b>${title}</b><span>${text}</span></button>`).join("");
   if (document.activeElement !== $("#money")) $("#money").value = Math.round(s.money);
   $("#risks").innerHTML = [[0.5, "Very careful"], [1, "Careful"], [2, "Bolder"]].map(([p, t]) => `<button class="option ${s.risk_pct === p ? "picked" : ""}" data-risk="${p}" aria-pressed="${s.risk_pct === p}"><b>${t}</b><span>${p}% = ${whole(s.money * p / 100)}</span></button>`).join("");
+  $("#limits").innerHTML = LIMITS.map(([key, title, options]) => `<div class="limit"><h3>${title}</h3><div class="row">${options.map(([v, label, note]) =>
+    `<button class="option ${s[key] === v ? "picked" : ""}" data-limit="${key}" data-value="${v}" aria-pressed="${s[key] === v}"><b>${label}</b><span>${note(s)}</span></button>`).join("")}</div></div>`).join("");
   const chips = [...new Set([...s.stocks, ...watchlist])];
   $("#stocks").innerHTML = chips.map(k => `<button class="${s.stocks.includes(k) ? "on" : ""}" data-stock="${esc(k)}" aria-pressed="${s.stocks.includes(k)}">${esc(k)}</button>`).join("");
   renderWatch();
@@ -169,6 +177,7 @@ function renderBot() {
 $("#pause").addEventListener("click", () => save({ paused: !bot.paused }));
 $("#modes").addEventListener("click", e => { const b = e.target.closest("[data-mode]"); if (b && !b.disabled) save({ mode: b.dataset.mode }); });
 $("#risks").addEventListener("click", e => { const b = e.target.closest("[data-risk]"); if (b) save({ risk_pct: Number(b.dataset.risk) }); });
+$("#limits").addEventListener("click", e => { const b = e.target.closest("[data-limit]"); if (b) save({ [b.dataset.limit]: Number(b.dataset.value) }); });
 $("#stocks").addEventListener("click", e => {
   const k = e.target.dataset.stock;
   if (k) save({ stocks: bot.stocks.includes(k) ? bot.stocks.filter(x => x !== k) : [...bot.stocks, k] });
@@ -184,14 +193,17 @@ function renderActivity() {
   const s = bot, invested = s.positions.reduce((a, p) => a + p.qty * p.entry, 0);
   $("#totals").innerHTML = `<div><span class="muted small">Pretend money free</span><b>${inr(s.money + s.realised - invested)}</b></div><div><span class="muted small">In open pretend trades</span><b>${inr(invested)}</b></div><div><span class="muted small">Closed trades, gain or loss</span><b class="${s.realised >= 0 ? "pos" : "neg"}">${inr(s.realised)}</b></div>`;
   $("#open").innerHTML = s.positions.map(p => `<article class="card"><div class="meta"><span>Bought ${esc(p.date)}</span><span>Open pretend trade</span></div><div class="entry-title">${p.qty} ${esc(p.symbol)} at ${inr(p.entry)}</div><p>Sells near ${inr(p.target)} for a gain, or near ${inr(p.stop)} to limit the loss.</p></article>`).join("");
-  $("#pending").innerHTML = s.pending.map(x => `<article class="card"><div class="meta"><span>${esc(x.date)}</span><span>Needs your answer</span></div><div class="entry-title">Suggestion: buy ${x.qty} ${esc(x.symbol)} at about ${inr(x.entry)}</div><p>${esc(x.why)} The planned loss limit is about ${inr(x.max_loss)}. Pretend money only.</p><div class="answers"><button class="dark" data-answer="${x.id}" data-approve="1">Approve</button><button data-answer="${x.id}">Skip</button></div></article>`).join("");
+  $("#pending").innerHTML = s.pending.map(x => `<article class="card"><div class="meta"><span>${esc(x.date)}</span><span>Needs your answer</span></div><div class="entry-title">Suggestion: buy ${x.qty} ${esc(x.symbol)}</div><p>${esc(x.why)}</p>
+    <div class="ticket"><div><span>Buy</span><b>${x.qty} ${esc(x.symbol)} at about ${inr(x.entry)}</b></div><div><span>Sell for a gain near</span><b>${inr(x.target)}</b></div><div><span>Sell to limit the loss near</span><b>${inr(x.stop)}</b></div><div><span>Most it could lose</span><b>${inr(x.max_loss)}</b></div></div>
+    <p class="muted small">Passed your safety limits. Approve applies only to this exact trade, and the limits are checked again first. Pretend money only. A sudden price gap can make the loss bigger.</p>
+    <div class="answers"><button class="dark" data-answer="${x.id}" data-approve="1" data-fp="${esc(x.fingerprint)}">Approve this trade</button><button data-answer="${x.id}">Skip</button></div></article>`).join("");
   $("#log").innerHTML = s.activity.length ? s.activity.map(a => `<article class="card"><div class="meta"><span>${esc(a.when)}</span><span>${esc(a.tag)}</span></div><div class="entry-title">${esc(a.title)}</div><p>${esc(a.why)}</p></article>`).join("")
     : `<section class="card"><p>Nothing yet. Choose stocks on the Robot screen, then press Check now.</p></section>`;
 }
 $("#pending").addEventListener("click", async e => {
   const b = e.target.closest("[data-answer]");
   if (!b) return;
-  try { setBot(await api(`/api/robot/pending/${b.dataset.answer}`, { approve: !!b.dataset.approve })); }
+  try { setBot(await api(`/api/robot/pending/${b.dataset.answer}`, { approve: !!b.dataset.approve, fingerprint: b.dataset.fp })); }
   catch (err) { $("#check-note").textContent = err.message; setBot(await api("/api/robot")); }
 });
 $("#check").addEventListener("click", async () => {

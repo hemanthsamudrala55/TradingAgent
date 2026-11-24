@@ -458,10 +458,13 @@ def api_robot_check():
 
 @app.post("/api/robot/pending/<int:pending_id>")
 def api_robot_answer(pending_id: int):
+    b = request.get_json(force=True)
     try:
-        return ok(robot.answer(pending_id, bool(request.get_json(force=True).get("approve"))))
+        return ok(robot.answer(pending_id, bool(b.get("approve")), b.get("fingerprint")))
     except LookupError as e:
         return err(e, 404)
+    except ValueError as e:
+        return err(e, 409)
 
 
 def _robot_loop():

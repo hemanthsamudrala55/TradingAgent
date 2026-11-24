@@ -6,6 +6,7 @@ Automatic mode is refused. State lives in state/robot.json (not in Git).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from datetime import datetime, timedelta, timezone
@@ -19,10 +20,12 @@ from . import positional as pos
 STATE_FILE = Path(__file__).resolve().parents[1] / "state" / "robot.json"
 MODES = ("practice", "ask")
 RISKS = (0.5, 1, 2)
+LIMITS = {"daily_loss_pct": (2, 3, 5), "max_trades_per_day": (1, 2, 3), "max_open": (3, 5, 8)}
 IST = timezone(timedelta(hours=5, minutes=30))
 MARKET_CLOSE = (15, 30)
 _DEFAULT = {"mode": "practice", "money": 100000, "risk_pct": 1, "stocks": [], "paused": False,
-            "positions": [], "pending": [], "activity": [], "realised": 0, "seen": {}, "next_id": 1}
+            "daily_loss_pct": 3, "max_trades_per_day": 2, "max_open": 5,
+            "positions": [], "pending": [], "activity": [], "closed": [], "realised": 0, "seen": {}, "next_id": 1}
 _lock = threading.RLock()
 
 
@@ -69,8 +72,44 @@ def update_settings(b: dict) -> dict:
             s["stocks"] = sorted({str(x).strip().upper() for x in b["stocks"] if str(x).strip()})
         if "paused" in b:
             s["paused"] = bool(b["paused"])
+        for key, allowed in LIMITS.items():
+            if key in b:
+                if float(b[key]) not in allowed:
+                    raise ValueError("Choose one of the listed limits")
+                s[key] = float(b[key])
         _save(s)
         return s
+
+
+def fingerprint(order: dict) -> str:
+    """Identifies one exact suggestion, so an Approve can only ever apply to what was shown."""
+    keys = ("symbol", "qty", "entry", "stop", "target", "date")
+    return hashlib.sha256(json.dumps([order[k] for k in keys]).encode()).hexdigest()[:16]
+
+
+def risk_check(s: dict, order: dict) -> list[str]:
+    """Every buy passes these, in Practice and on Approve. Returns the reasons it is blocked (none = pass)."""
+    day, reasons = order["date"], []
+    loss = order["qty"] * (order["entry"] - order["stop"])
+    cap = s["money"] * s["risk_pct"] / 100
+    daily_cap = s["money"] * s["daily_loss_pct"] / 100
+    day_result = sum(c["gain"] for c in s["closed"] if c["date"] == day)
+    trades_today = sum(1 for p in s["positions"] if p["date"] == day) + sum(1 for c in s["closed"] if c["bought"] == day)
+    if order["qty"] < 1 or loss <= 0:
+        reasons.append("The trade has no sensible size or exit level.")
+    if loss > cap + 0.01:
+        reasons.append(f"It could lose ₹{loss:,.0f}, more than your ₹{cap:,.0f} limit for one trade.")
+    if -day_result + loss > daily_cap + 0.01:
+        reasons.append(f"Losses on {day} could pass your daily limit of ₹{daily_cap:,.0f}.")
+    if trades_today >= s["max_trades_per_day"]:
+        reasons.append(f"It already made {trades_today} trade(s) on {day}, your limit for one day.")
+    if len(s["positions"]) >= s["max_open"]:
+        reasons.append(f"{len(s['positions'])} trades are already open, your limit.")
+    if any(p["symbol"] == order["symbol"] for p in s["positions"]):
+        reasons.append(f"It already holds {order['symbol']}.")
+    if order["qty"] * order["entry"] > cash(s) + 0.01:
+        reasons.append("There is not enough pretend money left.")
+    return reasons
 
 
 def plain_view(p: dict) -> dict:
@@ -120,6 +159,8 @@ def _manage(s: dict, df: pd.DataFrame, p: dict) -> None:
             gain = (price - p["entry"]) * p["qty"]
             s["realised"] = round(s["realised"] + gain, 2)
             s["positions"].remove(p)
+            s["closed"].insert(0, {"symbol": p["symbol"], "bought": p["date"], "date": ts.strftime("%Y-%m-%d"), "gain": round(gain, 2)})
+            del s["closed"][500:]
             word = "gain" if gain >= 0 else "loss"
             _log(s, ts.strftime("%Y-%m-%d"), "Pretend trade", f"Sold {p['qty']} {p['symbol']} at about ₹{price:,.2f}, pretend {word} of ₹{abs(gain):,.2f}", why)
             return
@@ -157,30 +198,37 @@ def check(get_daily: Callable[[str], pd.DataFrame], now: datetime | None = None,
                 continue
             pl = result["plan"]
             qty = _size(s, pl["entry"], pl["stop"])
+            order = {"symbol": sym, "qty": qty, "entry": pl["entry"], "stop": pl["stop"], "target": pl["t1"]["price"], "date": when}
+            blocked = risk_check(s, order)
             if qty < 1:
                 _log(s, when, "No action", f"Skipped {sym}", "Your money and loss limit are too small to buy even one share.")
+            elif blocked:
+                _log(s, when, "Blocked by your limits", f"Did not buy {sym}", " ".join(blocked))
             elif s["mode"] == "practice":
                 _buy(s, sym, qty, pl["entry"], pl["stop"], pl["t1"]["price"], when, view["text"])
             else:
-                s["pending"].append({"id": s["next_id"], "symbol": sym, "qty": qty, "entry": pl["entry"], "stop": pl["stop"],
-                                     "target": pl["t1"]["price"], "date": when, "why": view["text"],
+                s["pending"].append({**order, "id": s["next_id"], "why": view["text"], "fingerprint": fingerprint(order),
                                      "max_loss": round(qty * (pl["entry"] - pl["stop"]), 2)})
                 s["next_id"] += 1
         _save(s)
         return {"state": s, "errors": errors}
 
 
-def answer(pending_id: int, approve: bool) -> dict:
+def answer(pending_id: int, approve: bool, shown: str | None = None) -> dict:
+    """An Approve counts only for the exact suggestion the user saw, and only if it still passes the limits."""
     with _lock:
         s = load()
         x = next((y for y in s["pending"] if y["id"] == pending_id), None)
         if not x:
             raise LookupError("This suggestion is no longer open")
+        if approve and shown != fingerprint(x):
+            raise ValueError("This suggestion changed. Look at it again before approving.")
         s["pending"].remove(x)
+        blocked = risk_check(s, x) if approve else []
         if not approve:
             _log(s, x["date"], "Skipped by you", f"Skipped buying {x['qty']} {x['symbol']}", "You chose not to take this trade.")
-        elif x["qty"] * x["entry"] > cash(s):
-            _log(s, x["date"], "No action", f"Could not buy {x['qty']} {x['symbol']}", "There is not enough pretend money left.")
+        elif blocked:
+            _log(s, x["date"], "Blocked by your limits", f"Did not buy {x['qty']} {x['symbol']}", " ".join(blocked))
         else:
             _buy(s, x["symbol"], x["qty"], x["entry"], x["stop"], x["target"], x["date"], "You approved this. It is tracked with pretend money, and no real order was sent.")
         _save(s)

@@ -60,6 +60,9 @@ main { max-width: 1160px; margin: auto; padding: 20px; }
 .option:disabled { background: #EEF1F4; }
 .option b, .option span { display: block; } .option span { font-size: 14px; color: var(--muted); }
 .card > .small, .card > #risks + .small { margin-top: 8px; }
+.limit { margin-top: 12px; } .limit h3 { margin: 0 0 8px; font-size: 16px; }
+.ticket { margin: 10px 0 0; padding: 12px 14px; border-radius: 8px; background: var(--selected); }
+.ticket div { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
 .between { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
 .totals { display: flex; flex-wrap: wrap; gap: 12px 32px; }
 .totals b { display: block; font-size: 20px; }
