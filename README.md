@@ -29,7 +29,21 @@ The main page has three plain-language screens:
 | Robot | Set the mode, money, loss limit and stocks. Practice and Ask me first work. Automatic is locked. |
 | Activity | Every decision and its reason, with Approve or Skip for suggestions. |
 
-The robot only uses pretend money. It has no code that sends orders, even for approved trades. It runs while the dashboard is open and judges each stock once per finished daily candle.
+The robot uses pretend money unless you switch on real orders (Robot screen, section 6). It runs while the dashboard is open and judges each stock once per finished daily candle. Every buy must pass the safety limits in section 5.
+
+### Real orders with Zerodha
+
+Off by default. A real order is sent only when all of these hold:
+
+1. Your own Kite Connect app keys are in `.env` (a paid Zerodha plan) and you are logged in with **Connect Zerodha**. The key-free connection is read-only and is never used for orders.
+2. The robot is in **Ask me first** mode and you typed `REAL MONEY` to switch real orders on.
+3. The suggestion you approve is exactly the one shown, still passes every safety limit, and you typed its confirmation, for example `BUY 10 INFY`.
+
+The order is a delivery (CNC) **limit** buy at the suggested price, valid for the day; outside market hours it goes in as an after-market order. Each approval sends one order, which is never retried. Once it fills, the robot places a GTT OCO at Zerodha: a stop-loss sell and a target sell. If Zerodha refuses the stop-loss, the Activity screen says so in red and the robot tries again on each check, so set one in Kite yourself.
+
+Since 1 April 2026 Zerodha accepts API orders only from a static IP address registered on your Kite Connect app. Register yours first, or orders will be refused.
+
+Stopping the robot halts new decisions and approvals. It does not cancel orders or GTTs already at Zerodha. Real trade sell prices are not read back, so for the daily loss limit a closed real trade counts as a full loss until you check Kite.
 
 ## Advanced view (`/advanced`)
 

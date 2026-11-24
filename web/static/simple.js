@@ -132,7 +132,7 @@ $("#suggest").addEventListener("click", e => {
 let bot = null;
 const MODES = [
   ["practice", "Practice", "Pretend money only. Nothing is sent to your broker."],
-  ["ask", "Ask me first", "It suggests trades and waits for Approve. For now, approved trades also use pretend money."],
+  ["ask", "Ask me first", "It suggests trades and waits for Approve. Pretend money, unless you switch on real orders below."],
   ["auto", "Automatic (locked)", "Would trade on its own. Locked, because real orders are not built yet."],
 ];
 
@@ -158,9 +158,9 @@ $("#watch").addEventListener("click", () => {
 
 function renderBot() {
   const s = bot, cap = s.money * s.risk_pct / 100, list = s.stocks.join(", ") || "no stocks yet";
-  $("#robot-status").innerHTML = `<span class="dot ${s.paused ? "off" : ""}"></span>${s.paused ? "Robot stopped" : s.mode === "ask" ? "Robot asking first" : "Robot practising"}`;
+  $("#robot-status").innerHTML = `<span class="dot ${s.paused ? "off" : ""}"></span>${s.paused ? "Robot stopped" : s.live ? "Real orders on" : s.mode === "ask" ? "Robot asking first" : "Robot practising"}`;
   $("#rule-title").textContent = s.paused ? "The robot is stopped" : "Your robot, in one sentence";
-  const verb = s.mode === "ask" ? "will suggest trades and wait for your approval" : "will practise with pretend money";
+  const verb = s.live ? "will suggest trades and send a real order to Zerodha only when you confirm it" : s.mode === "ask" ? "will suggest trades and wait for your approval" : "will practise with pretend money";
   $("#rule-text").textContent = s.paused ? "It will not suggest or make any trades until you press Start."
     : `It ${verb}, using up to ${whole(s.money)} on ${list}, and aims to risk at most ${whole(cap)} on one trade, ${whole(s.money * s.daily_loss_pct / 100)} in one day, with at most ${s.max_trades_per_day} new trade${s.max_trades_per_day === 1 ? "" : "s"} a day.`;
   $("#pause").textContent = s.paused ? "Start the robot" : "Stop everything";
@@ -171,9 +171,32 @@ function renderBot() {
     `<button class="option ${s[key] === v ? "picked" : ""}" data-limit="${key}" data-value="${v}" aria-pressed="${s[key] === v}"><b>${label}</b><span>${note(s)}</span></button>`).join("")}</div></div>`).join("");
   const chips = [...new Set([...s.stocks, ...watchlist])];
   $("#stocks").innerHTML = chips.map(k => `<button class="${s.stocks.includes(k) ? "on" : ""}" data-stock="${esc(k)}" aria-pressed="${s.stocks.includes(k)}">${esc(k)}</button>`).join("");
+  renderLive();
   renderWatch();
   renderActivity();
 }
+
+function renderLive() {
+  const s = bot, item = (ok, text) => `<li><span class="${ok ? "ok" : "no"}">${ok ? "Done" : "Not yet"}</span>: ${text}</li>`;
+  const ready = conn.orders_ready && s.mode === "ask";
+  $("#live-body").innerHTML = s.live
+    ? `<p class="live-on">Real orders are ON. Each approved trade becomes a real Zerodha order after you type its confirmation.</p>
+       <button id="live-off" class="wide">Switch off real orders</button>`
+    : `<p>Off. Approved trades use pretend money. To send real orders, all of these are needed:</p>
+       <ul class="checklist">${item(conn.kite_keys, "Your own Kite Connect app keys in the .env file (a paid Zerodha plan)")}
+       ${item(conn.kite_connected, "Logged in to Zerodha with Connect Zerodha (needed again each day)")}
+       ${item(s.mode === "ask", "Ask me first mode, above")}
+       <li><span class="no">Check yourself</span>: a static IP address registered with Zerodha. Since 1 April 2026 Zerodha rejects API orders from other addresses.</li></ul>
+       <p class="small" style="margin-top:10px">Real orders can lose real money, more than the limit if the price gaps. Try Practice first.</p>
+       <div class="confirm-row"><label class="sr" for="live-phrase">Type REAL MONEY to switch on</label><input id="live-phrase" placeholder="Type REAL MONEY" ${ready ? "" : "disabled"}>
+       <button id="live-on" class="dark" ${ready ? "" : "disabled"}>Switch on real orders</button></div>`;
+}
+$("#live-card").addEventListener("click", async e => {
+  if (!["live-on", "live-off"].includes(e.target.id)) return;
+  $("#live-error").hidden = true;
+  try { await save(e.target.id === "live-on" ? { live: true, confirm: $("#live-phrase").value } : { live: false }); }
+  catch (err) { $("#live-error").textContent = err.message; $("#live-error").hidden = false; }
+});
 $("#pause").addEventListener("click", () => save({ paused: !bot.paused }));
 $("#modes").addEventListener("click", e => { const b = e.target.closest("[data-mode]"); if (b && !b.disabled) save({ mode: b.dataset.mode }); });
 $("#risks").addEventListener("click", e => { const b = e.target.closest("[data-risk]"); if (b) save({ risk_pct: Number(b.dataset.risk) }); });
@@ -191,19 +214,24 @@ $("#money").addEventListener("change", async () => {
 /* ---------- activity ---------- */
 function renderActivity() {
   const s = bot, invested = s.positions.reduce((a, p) => a + p.qty * p.entry, 0);
-  $("#totals").innerHTML = `<div><span class="muted small">Pretend money free</span><b>${inr(s.money + s.realised - invested)}</b></div><div><span class="muted small">In open pretend trades</span><b>${inr(invested)}</b></div><div><span class="muted small">Closed trades, gain or loss</span><b class="${s.realised >= 0 ? "pos" : "neg"}">${inr(s.realised)}</b></div>`;
-  $("#open").innerHTML = s.positions.map(p => `<article class="card"><div class="meta"><span>Bought ${esc(p.date)}</span><span>Open pretend trade</span></div><div class="entry-title">${p.qty} ${esc(p.symbol)} at ${inr(p.entry)}</div><p>Sells near ${inr(p.target)} for a gain, or near ${inr(p.stop)} to limit the loss.</p></article>`).join("");
+  const money = s.live || s.positions.some(p => p.live) ? "Money" : "Pretend money";
+  $("#totals").innerHTML = `<div><span class="muted small">${money} free within your limit</span><b>${inr(s.money + s.realised - invested)}</b></div><div><span class="muted small">In open trades</span><b>${inr(invested)}</b></div><div><span class="muted small">Closed pretend trades, gain or loss</span><b class="${s.realised >= 0 ? "pos" : "neg"}">${inr(s.realised)}</b></div>`;
+  const LIVE = { ordered: "Real order sent, waiting to fill", protected: "Real trade, stop-loss set at Zerodha", unprotected: "Real trade with NO stop-loss: set one in Kite now" };
+  $("#open").innerHTML = s.positions.map(p => `<article class="card"><div class="meta"><span>${p.live ? "Ordered" : "Bought"} ${esc(p.date)}</span><span class="${p.status === "unprotected" ? "no" : ""}">${p.live ? LIVE[p.status] || "Real trade" : "Open pretend trade"}</span></div><div class="entry-title">${p.qty} ${esc(p.symbol)} at ${p.live && p.status === "ordered" ? "up to " : ""}${inr(p.entry)}</div><p>Sells near ${inr(p.target)} for a gain, or near ${inr(p.stop)} to limit the loss.</p></article>`).join("");
   $("#pending").innerHTML = s.pending.map(x => `<article class="card"><div class="meta"><span>${esc(x.date)}</span><span>Needs your answer</span></div><div class="entry-title">Suggestion: buy ${x.qty} ${esc(x.symbol)}</div><p>${esc(x.why)}</p>
     <div class="ticket"><div><span>Buy</span><b>${x.qty} ${esc(x.symbol)} at about ${inr(x.entry)}</b></div><div><span>Sell for a gain near</span><b>${inr(x.target)}</b></div><div><span>Sell to limit the loss near</span><b>${inr(x.stop)}</b></div><div><span>Most it could lose</span><b>${inr(x.max_loss)}</b></div></div>
-    <p class="muted small">Passed your safety limits. Approve applies only to this exact trade, and the limits are checked again first. Pretend money only. A sudden price gap can make the loss bigger.</p>
-    <div class="answers"><button class="dark" data-answer="${x.id}" data-approve="1" data-fp="${esc(x.fingerprint)}">Approve this trade</button><button data-answer="${x.id}">Skip</button></div></article>`).join("");
+    ${s.live ? `<p class="live-on" style="margin-top:10px">REAL ORDER. Approving sends a limit buy to Zerodha at ${inr(x.entry)} or less. If it fills, a stop-loss and target are set at Zerodha.</p>
+    <div class="confirm-row"><label class="sr" for="confirm-${x.id}">Type ${esc("BUY " + x.qty + " " + x.symbol)} to confirm</label><input id="confirm-${x.id}" placeholder="Type BUY ${x.qty} ${esc(x.symbol)}"></div>`
+    : `<p class="muted small">Pretend money only.</p>`}
+    <p class="muted small">Passed your safety limits. Approve applies only to this exact trade, and the limits are checked again first. A sudden price gap can make the loss bigger.</p>
+    <div class="answers"><button class="dark" data-answer="${x.id}" data-approve="1" data-fp="${esc(x.fingerprint)}">${s.live ? "Send real order" : "Approve this trade"}</button><button data-answer="${x.id}">Skip</button></div></article>`).join("");
   $("#log").innerHTML = s.activity.length ? s.activity.map(a => `<article class="card"><div class="meta"><span>${esc(a.when)}</span><span>${esc(a.tag)}</span></div><div class="entry-title">${esc(a.title)}</div><p>${esc(a.why)}</p></article>`).join("")
     : `<section class="card"><p>Nothing yet. Choose stocks on the Robot screen, then press Check now.</p></section>`;
 }
 $("#pending").addEventListener("click", async e => {
   const b = e.target.closest("[data-answer]");
   if (!b) return;
-  try { setBot(await api(`/api/robot/pending/${b.dataset.answer}`, { approve: !!b.dataset.approve, fingerprint: b.dataset.fp })); }
+  try { setBot(await api(`/api/robot/pending/${b.dataset.answer}`, { approve: !!b.dataset.approve, fingerprint: b.dataset.fp, confirm: $(`#confirm-${b.dataset.answer}`)?.value })); }
   catch (err) { $("#check-note").textContent = err.message; setBot(await api("/api/robot")); }
 });
 $("#check").addEventListener("click", async () => {
@@ -220,10 +248,11 @@ $("#check").addEventListener("click", async () => {
 });
 
 /* ---------- connection ---------- */
-let watchlist = [];
+let watchlist = [], conn = {};
 async function loadStatus() {
   const s = await api("/api/status");
   watchlist = s.watchlist || [];
+  conn = { orders_ready: s.orders_ready, kite_keys: s.kite_keys, kite_connected: s.kite.connected };
   $("#conn").innerHTML = s.kite.connected ? `<span class="dot"></span>Zerodha connected`
     : `<a href="/kite/login" target="_blank" rel="noopener">Connect Zerodha</a>`;
   if (bot) renderBot();

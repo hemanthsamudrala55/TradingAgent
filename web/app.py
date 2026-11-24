@@ -105,7 +105,7 @@ def index():
 
 @app.get("/api/status")
 def status():
-    return ok({"kite": kite.connected(), "uploads": sorted(_uploads), "default_source": default_source(),
+    return ok({"kite": kite.connected(), "orders_ready": kite.orders_ready(), "kite_keys": bool(os.environ.get("KITE_API_KEY")), "uploads": sorted(_uploads), "default_source": default_source(),
                "watchlist": yaml.safe_load((ROOT / "config" / "watchlist.yaml").read_text())["symbols"]})
 
 
@@ -263,7 +263,7 @@ def kite_callback():
         kite.complete_login(tok)
     except Exception as e:  # noqa: BLE001
         return err(e)
-    return redirect("/advanced#live")
+    return redirect("/#robot")
 
 
 @app.get("/api/live")
@@ -302,7 +302,7 @@ def live():
             row["error"] = str(e)
         rows.append(row)
     return ok({"connected": True, "user": st.get("user"), "holdings": rows, "positions": kite.positions(),
-               "note": "Read-only. The dashboard never places or modifies orders."})
+               "note": "Read-only. This view never places or modifies orders."})
 
 
 @app.post("/api/scan")
@@ -437,6 +437,11 @@ def _robot_daily(sym: str) -> pd.DataFrame:
     return _prices(sym, lambda s, src: daily(s, src, start))[0]
 
 
+def _broker():
+    """The order functions, only with the user's own Kite Connect keys and a live login."""
+    return kite if kite.orders_ready() else None
+
+
 @app.get("/api/robot")
 def api_robot():
     return ok(robot.load())
@@ -445,14 +450,15 @@ def api_robot():
 @app.post("/api/robot/settings")
 def api_robot_settings():
     try:
-        return ok(robot.update_settings(request.get_json(force=True)))
+        b = request.get_json(force=True)
+        return ok(robot.update_settings(b, broker_ready=bool(b.get("live")) and kite.orders_ready()))
     except (TypeError, ValueError) as e:
         return err(e)
 
 
 @app.post("/api/robot/check")
 def api_robot_check():
-    res = robot.check(_robot_daily)
+    res = robot.check(_robot_daily, broker=_broker())
     return ok({**res["state"], "errors": res["errors"]})
 
 
@@ -460,7 +466,8 @@ def api_robot_check():
 def api_robot_answer(pending_id: int):
     b = request.get_json(force=True)
     try:
-        return ok(robot.answer(pending_id, bool(b.get("approve")), b.get("fingerprint")))
+        return ok(robot.answer(pending_id, bool(b.get("approve")), b.get("fingerprint"), b.get("confirm"),
+                               _broker() if robot.load()["live"] else None))
     except LookupError as e:
         return err(e, 404)
     except ValueError as e:
@@ -471,7 +478,7 @@ def _robot_loop():
     """While the dashboard is open, check every 15 minutes. Each stock acts once per finished candle."""
     while True:
         try:
-            robot.check(_robot_daily)
+            robot.check(_robot_daily, broker=_broker())
         except Exception as e:  # noqa: BLE001 - keep the loop alive
             print("Robot check failed:", e, file=sys.stderr)
         time.sleep(900)

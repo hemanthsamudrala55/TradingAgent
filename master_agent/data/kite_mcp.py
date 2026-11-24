@@ -94,6 +94,11 @@ def connected() -> dict:
     try:
         p = call("get_profile")
         return {"connected": True, "user": p.get("user_name"), "user_id": p.get("user_id")}
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code in (401, 404):
+            SESSION_FILE.unlink(missing_ok=True)      # expired: forget it, so later checks skip the network
+            return {"connected": False, "reason": "Zerodha login expired. Connect again."}
+        return {"connected": False, "reason": str(e)}
     except Exception as e:  # noqa: BLE001 - surface any Kite error to the UI
         return {"connected": False, "reason": str(e)}
 
