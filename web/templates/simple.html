@@ -120,6 +120,11 @@
     <div class="between"><h2 class="sub">Open trades</h2><span id="live-note" class="muted small"></span></div>
     <div id="open"></div>
     <div id="pending"></div>
+    <section id="watching-card" class="card" hidden>
+      <h2>Stocks the robot is watching</h2>
+      <div class="grid-wrap"><table id="watching" class="grid"></table></div>
+      <p class="muted small" style="margin-top:8px">The robot judges finished daily candles. Live prices show where each stock is now compared with the price it would buy near.</p>
+    </section>
     <section id="closed-card" class="card" hidden><h2>Closed trades</h2><div class="grid-wrap"><table id="closed" class="grid"></table></div></section>
     <h2 class="sub">Every decision</h2>
     <div id="log"></div>

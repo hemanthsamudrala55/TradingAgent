@@ -95,9 +95,9 @@ select { font: inherit; min-height: 40px; padding: 0 8px; border: 1px solid var(
 .grid-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
 .grid { width: 100%; border-collapse: collapse; font-size: 14px; }
 .grid th, .grid td { padding: 8px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
-.grid th { background: var(--ground); font-weight: 600; color: var(--muted); position: sticky; top: 0; }
-.grid th:first-child, .grid td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); }
-.grid th:first-child { background: var(--ground); }
+.grid th { background: var(--ground); font-weight: 600; color: var(--muted); position: sticky; top: 0; z-index: 1; }
+.grid th:first-child, .grid td:first-child { text-align: left; position: sticky; left: 0; z-index: 2; background: var(--card); box-shadow: 1px 0 0 var(--line); }
+.grid th:first-child { background: var(--ground); z-index: 3; }
 .grid td small { display: block; color: var(--muted); }
 .grid tr:last-child td { border-bottom: 0; }
 .grid button { min-height: 36px; padding: 0 12px; }
@@ -118,3 +118,4 @@ h2.sub { margin: 4px 0 0; }
 .dropdown li.active, .dropdown li[data-sym]:hover { background: var(--selected); }
 .dropdown li.note { cursor: default; color: var(--muted); font-size: 14px; }
 .opt-price { margin-left: auto; font-size: 14px; font-weight: 600; }
+.grid td.reason { text-align: left; white-space: normal; color: var(--muted); min-width: 260px; }

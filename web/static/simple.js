@@ -22,6 +22,7 @@ function show(tab) {
   });
   document.querySelectorAll(".tab").forEach(s => s.classList.toggle("on", s.id === "tab-" + tab));
   history.replaceState(null, "", "#" + tab);
+  if (tab === "activity" && typeof loadQuotes === "function" && bot) loadQuotes();
 }
 $("#tabs").addEventListener("click", e => e.target.dataset.tab && show(e.target.dataset.tab));
 
@@ -180,6 +181,7 @@ document.addEventListener("click", e => { if (!e.target.closest("#search")) clos
 let picks = null, picksAll = false, picksTimer;
 async function loadPicks() {
   clearTimeout(picksTimer);
+  picksTimer = null;
   try {
     const p = await api("/api/picks");
     if (p.working && !p.rows) {
@@ -236,23 +238,33 @@ function renderGrid() {
   $("#grid-filter").innerHTML = [["near", "Near a buy"], ["plan", "All with a plan"], ["mine", "Robot's stocks"]]
     .map(([k, t]) => `<button class="${gridFilter === k ? "on" : ""}" data-filter="${k}" aria-pressed="${gridFilter === k}">${t}</button>`).join("");
   if (!picks) { $("#grid").innerHTML = ""; $("#grid-note").textContent = "Working out the suggestions…"; return; }
-  let rows = picks.rows.filter(r => r.entry != null && (gridFilter === "plan" || (gridFilter === "near" ? r.group !== "later" : bot.stocks.includes(r.symbol))));
-  rows = rows.map(r => ({ ...r, gainPct: r.target ? (r.target - r.entry) / r.entry * 100 : null, lossPct: (r.entry - r.stop) / r.entry * 100, awayPct: (r.close - r.entry) / r.close * 100, size: sizeFor(r) }));
+  const bySym = Object.fromEntries([...picks.skipped.map(x => [x.symbol, { symbol: x.symbol, group: "later", title: "No prices", score: 998, text: "No prices could be found for it." }]),
+    ...picks.rows.map(r => [r.symbol, r])]);
+  // "Robot's stocks" lists every chosen stock, even one with no buy plan today, so each choice shows up at once
+  let rows = gridFilter === "mine"
+    ? bot.stocks.map(sym => bySym[sym] || { symbol: sym, group: "later", title: "Checking", score: 999, text: "Being looked at now. Its numbers appear in a minute." })
+    : picks.rows.filter(r => r.entry != null && (gridFilter === "plan" || r.group !== "later"));
+  rows = rows.map(r => r.entry == null ? { ...r, noPlan: true }
+    : { ...r, gainPct: r.target ? (r.target - r.entry) / r.entry * 100 : null, lossPct: (r.entry - r.stop) / r.entry * 100, awayPct: (r.close - r.entry) / r.close * 100, size: sizeFor(r) });
   const key = { near: r => r.score, gain: r => -(r.gainPct ?? -99), loss: r => r.lossPct, ratio: r => -((r.gainPct ?? 0) / r.lossPct) }[$("#grid-sort").value];
-  rows.sort((a, b) => key(a) - key(b));
-  const most = Math.max(1, ...rows.map(r => r.size.cost / bot.money * 100));
+  rows.sort((a, b) => (a.noPlan - b.noPlan) || (a.noPlan ? a.symbol.localeCompare(b.symbol) : key(a) - key(b)));
+  const most = Math.max(1, ...rows.filter(r => !r.noPlan).map(r => r.size.cost / bot.money * 100));
+  const addBtn = r => { const on = bot.stocks.includes(r.symbol); return `<td><button class="${on ? "" : "dark"}" data-grid-${on ? "remove" : "add"}="${esc(r.symbol)}">${on ? "Remove" : "Add"}</button></td>`; };
+  const name = r => `<td><button class="link" data-pick-open="${esc(r.symbol)}">${esc(r.symbol)}</button><small><span class="tag ${r.group}">${esc(r.title)}</span></small></td>`;
   $("#grid").innerHTML = `<thead><tr><th scope="col">Stock</th><th scope="col">Price now</th><th scope="col">Robot buys near</th><th scope="col">Gain at target</th><th scope="col">Loss at stop</th><th scope="col">Shares</th><th scope="col">Uses of your money</th><th scope="col"><span class="sr">Add or remove</span></th></tr></thead><tbody>`
     + (rows.length ? rows.map(r => {
-      const on = bot.stocks.includes(r.symbol), z = r.size, share = z.cost / bot.money * 100;
-      return `<tr><td><button class="link" data-pick-open="${esc(r.symbol)}">${esc(r.symbol)}</button><small><span class="tag ${r.group}">${esc(r.title)}</span></small></td>
+      if (r.noPlan) return `<tr class="no-plan">${name(r)}<td>${r.close == null ? "—" : inr(r.close)}</td>
+        <td colspan="5" class="reason">No buy plan today. ${esc(r.text)} The robot keeps watching and buys only if its rules are met.</td>${addBtn(r)}</tr>`;
+      const z = r.size, share = z.cost / bot.money * 100;
+      return `<tr>${name(r)}
         <td>${inr(r.close)}</td>
         <td>${inr(r.entry)}<small>${r.awayPct > 0.05 ? pct(r.awayPct) + " below now" : "at today's price"}</small></td>
         <td class="gain">${r.gainPct == null ? "—" : "+" + pct(r.gainPct)}<small>${r.target ? inr(r.target) + (z.qty ? " · +" + whole(z.qty * (r.target - r.entry)) : "") : ""}</small></td>
         <td class="loss">−${pct(r.lossPct).replace("−", "")}<small>${inr(r.stop)}${z.qty ? " · −" + whole(z.qty * (r.entry - r.stop)) : ""}</small></td>
         <td>${z.qty || "0"}<small>${z.qty ? whole(z.cost) : esc(z.why)}</small></td>
-        <td><span class="bar" style="width:${Math.round(share / most * 60)}px"></span>${pct(share)}</td>
-        <td><button class="${on ? "" : "dark"}" data-grid-${on ? "remove" : "add"}="${esc(r.symbol)}">${on ? "Remove" : "Add"}</button></td></tr>`;
-    }).join("") : `<tr><td colspan="8">No stocks to show here. Try "All with a plan".</td></tr>`) + "</tbody>";
+        <td><span class="bar" style="width:${Math.round(share / most * 60)}px"></span>${pct(share)}</td>${addBtn(r)}</tr>`;
+    }).join("") : `<tr><td colspan="8">${gridFilter === "mine" ? "The robot has no stocks yet. Pick some above, or use Add in “Near a buy”." : "No stocks to show here. Try “All with a plan”."}</td></tr>`) + "</tbody>";
+  if (bot.stocks.some(sym => !bySym[sym]) && !picksTimer) picksTimer = setTimeout(loadPicks, 3000);
   $("#grid-note").textContent = `Gain and loss are for the robot's target and safety stop. Shares use ${bot.risk_pct}% of ${whole(bot.money)} as the most one trade may lose, and only your free money (${whole(Math.max(sizeFor({ entry: 1, stop: 0 }).free, 0))}). A price gap can make the loss bigger. Prices up to ${picks.as_of}.`;
 }
 $("#grid-filter").addEventListener("click", e => { const b = e.target.closest("[data-filter]"); if (b) { gridFilter = b.dataset.filter; renderGrid(); } });
@@ -279,7 +291,7 @@ const LIMITS = [
   ["max_open", "Trades open at once", [[3, "3", () => "Fewer stocks"], [5, "5", () => "Balanced"], [8, "8", () => "More stocks"]]],
 ];
 
-const tradeKey = s => s ? [...s.positions, ...s.pending].map(p => p.symbol).sort().join() : null;
+const tradeKey = s => s ? [...s.positions, ...s.pending].map(p => p.symbol).concat(s.stocks).sort().join() : null;
 function setBot(s) { const changed = tradeKey(bot) !== tradeKey(s); bot = s; renderBot(); if (changed) loadQuotes(); }
 const save = patch => api("/api/robot/settings", patch).then(setBot);
 
@@ -353,13 +365,35 @@ $("#money").addEventListener("change", async () => {
 
 /* ---------- activity ---------- */
 let quotes = { prices: {}, source: null }, quoteTimer;
+// Every minute: fetch what the robot did in the background (its own check runs every 15 minutes), then live prices
 async function loadQuotes() {
   clearTimeout(quoteTimer);
-  if (!owner || !bot || (!bot.positions.length && !bot.pending.length)) return;
-  try { quotes = await api("/api/robot/prices"); $("#live-note").textContent = ""; }
-  catch (e) { $("#live-note").textContent = e.message; }
-  renderActivity();
+  if (!owner || !bot) return;
+  try { bot = await api("/api/robot"); } catch { /* keep the last copy */ }
+  if (bot.positions.length || bot.pending.length || bot.stocks.length) {
+    try { quotes = await api("/api/robot/prices"); delete quotes.error; } catch (e) { quotes = { ...quotes, error: e.message }; }
+  }
+  // keep anything typed in confirmation boxes (REAL MONEY, BUY …) through the redraw
+  const typed = [...document.querySelectorAll("#pending input, #live-body input")].map(i => [i.id, i.value, i === document.activeElement]);
+  renderBot();
+  typed.forEach(([id, value, focused]) => { const i = document.getElementById(id); if (i) { i.value = value; if (focused) i.focus(); } });
   quoteTimer = setTimeout(loadQuotes, 60000);
+}
+function renderWatching() {
+  const s = bot, card = $("#watching-card");
+  card.hidden = !s.stocks.length;
+  if (!s.stocks.length) return;
+  const bySym = Object.fromEntries((picks?.rows || []).map(r => [r.symbol, r]));
+  const rows = s.stocks.map(sym => {
+    const r = bySym[sym] || {}, live = quotes.prices[sym]?.price, base = r.close;
+    const day = live != null && base ? (live - base) / base * 100 : null;
+    const gap = live != null && r.entry ? (live - r.entry) / live * 100 : null;
+    return `<tr><td>${esc(sym)}<small>${r.title ? `<span class="tag ${r.group}">${esc(r.title)}</span>` : ""}</small></td>
+      <td>${live == null ? "—" : inr(live)}<small>${day == null ? "" : `<span class="${day >= 0 ? "gain" : "loss"}">${day >= 0 ? "+" : ""}${pct(day)}</span> vs last close`}</small></td>
+      <td>${r.entry ? inr(r.entry) : "—"}<small>${gap == null ? (r.entry ? "" : "no buy plan today") : gap > 0.05 ? pct(gap) + " above it" : "at or below it"}</small></td>
+      <td>${r.target ? inr(r.target) : "—"}</td><td>${r.stop ? inr(r.stop) : "—"}</td></tr>`;
+  });
+  $("#watching").innerHTML = `<thead><tr><th scope="col">Stock</th><th scope="col">Live price</th><th scope="col">Robot buys near</th><th scope="col">Would sell for a gain at</th><th scope="col">Would sell to limit loss at</th></tr></thead><tbody>${rows.join("")}</tbody>`;
 }
 const signed = v => (v >= 0 ? "+" : "−") + inr(Math.abs(v)).replace("₹", "₹");
 function renderActivity() {
@@ -374,7 +408,8 @@ function renderActivity() {
     <div><span class="muted small">Closed trades, gain or loss</span><b class="${s.realised >= 0 ? "pos" : "neg"}">${signed(s.realised)}</b></div>`;
   const LIVE = { ordered: "Real order sent, waiting to fill", protected: "Real trade, stop-loss set at Zerodha", unprotected: "Real trade with NO stop-loss: set one in Kite now" };
   const q0 = Object.values(quotes.prices)[0];
-  $("#live-note").textContent = s.positions.length ? (quotes.source ? `Live prices from ${quotes.source}${q0 ? ", at " + new Date(q0.time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : ""}. Updates every minute.` : "Getting live prices…") : "";
+  $("#live-note").textContent = quotes.error ? quotes.error : (s.positions.length || s.stocks.length) ? (quotes.source ? `Live prices from ${quotes.source}${q0 ? ", at " + new Date(q0.time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : ""}. Updates every minute.` : "Getting live prices…") : "";
+  renderWatching();
   const days = d => Math.max(0, Math.round((Date.now() - new Date(d)) / 864e5));
   $("#open").innerHTML = s.positions.length ? s.positions.map(p => {
     const price = now(p), cost = p.qty * p.entry, pl = price == null ? null : (price - p.entry) * p.qty;
@@ -390,7 +425,7 @@ function renderActivity() {
       </div>
       ${at == null ? "" : `<div class="track" role="img" aria-label="Price is ${Math.round(at)}% of the way from the stop to the target"><i style="left:calc(${at}% - 2px)"></i></div><div class="track-labels"><span>Stop ${inr(p.stop)}</span><span>Target ${inr(p.target)}</span></div>`}
       <p class="muted small" style="margin-top:8px">${p.live ? "Zerodha sells it when a price hits the stop or target." : "Pretend trades are settled on finished daily candles: it sells on the first day the price touches the stop or the target."}</p></article>`;
-  }).join("") : `<section class="card"><p class="muted">No open trades.</p></section>`;
+  }).join("") : `<section class="card"><p class="muted">No open trades yet. The robot buys only when a stock's rules are met${s.mode === "ask" ? ", and in Ask me first mode it waits for you to approve each one here" : ""}.</p></section>`;
   $("#closed-card").hidden = !s.closed.length;
   $("#closed").innerHTML = `<thead><tr><th scope="col">Stock</th><th scope="col">Bought</th><th scope="col">Sold</th><th scope="col">Shares</th><th scope="col">Buy price</th><th scope="col">Sell price</th><th scope="col">Gain or loss</th></tr></thead><tbody>`
     + s.closed.slice(0, 100).map(c => `<tr><td>${esc(c.symbol)}${c.live ? " <small>real</small>" : ""}</td><td>${esc(c.bought)}</td><td>${esc(c.date)}</td><td>${c.qty ?? "—"}</td><td>${c.entry == null ? "—" : inr(c.entry)}</td><td>${c.exit == null ? "—" : inr(c.exit)}</td>

@@ -92,13 +92,14 @@ def test_prices_endpoint_is_owner_only_and_uses_yahoo(monkeypatch, tmp_path):
     monkeypatch.setattr(robot, "STATE_FILE", tmp_path / "robot.json")
     s = robot.load()
     s["positions"] = [{"symbol": "AAA", "qty": 10, "entry": 100.0, "stop": 95.0, "target": 110.0, "date": "2026-11-20"}]
+    s["stocks"] = ["BBB"]
     robot._save(s)
     monkeypatch.setattr(yahoo, "ltp", lambda syms: {x: {"price": 103.5, "time": "2026-11-25T10:00:00+05:30"} for x in syms})
     monkeypatch.setitem(webapp._quotes, "at", 0.0)
     monkeypatch.delenv("KITE_API_KEY", raising=False)
     monkeypatch.delenv("OWNER_PASSWORD_HASH", raising=False)
     r = webapp.app.test_client().get("/api/robot/prices").get_json()
-    assert r["prices"]["AAA"]["price"] == 103.5
+    assert r["prices"]["AAA"]["price"] == 103.5 and "BBB" in r["prices"]
     monkeypatch.setenv("OWNER_PASSWORD_HASH", generate_password_hash("x" * 12))
     assert webapp.app.test_client().get("/api/robot/prices").status_code == 401
 
@@ -110,3 +111,19 @@ def test_closed_trade_keeps_shares_and_prices():
     robot._close(s, p, "2026-11-24", 100.0)
     c = s["closed"][0]
     assert (c["qty"], c["entry"], c["exit"], c["gain"]) == (10, 100.0, 110.0, 100.0)
+
+
+def test_picks_rescan_when_a_chosen_stock_was_not_judged(monkeypatch, tmp_path):
+    from master_agent import robot
+    from web import app as webapp
+    monkeypatch.setattr(robot, "STATE_FILE", tmp_path / "robot.json")
+    robot.update_settings({"stocks": ["NEWONE"]})
+    monkeypatch.delenv("OWNER_PASSWORD_HASH", raising=False)
+    monkeypatch.setitem(webapp._picks, "result", {"rows": [], "skipped": [], "scanned": 0, "as_of": None})
+    monkeypatch.setitem(webapp._picks, "at", 1e18)
+    monkeypatch.setitem(webapp._picks, "busy", False)
+    started = []
+    monkeypatch.setattr(webapp.threading, "Thread", lambda target, daemon: type("T", (), {"start": lambda self: started.append(1)})())
+    assert webapp.app.test_client().get("/api/picks").get_json()["working"] is True
+    assert started == [1] and "NEWONE" in webapp._picks_symbols()
+    webapp._picks["busy"] = False

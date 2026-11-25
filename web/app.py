@@ -446,6 +446,7 @@ PICKS_FRESH = 30 * 60
 def _picks_symbols() -> list[str]:
     syms = yaml.safe_load((ROOT / "config" / "universe.yaml").read_text())["symbols"]
     syms += yaml.safe_load((ROOT / "config" / "watchlist.yaml").read_text())["symbols"]
+    syms += robot.load()["stocks"]          # stocks you chose from search are judged too
     return sorted({str(s).strip().upper() for s in syms if str(s).strip()})
 
 
@@ -468,7 +469,9 @@ def api_picks():
     """Stocks nearest to the robot's buying rules, from Yahoo prices (same for owner and visitors).
     Worked out in the background and kept for 30 minutes; the page asks again while it says working."""
     with _picks_lock:
-        stale = time.time() - _picks["at"] > PICKS_FRESH
+        res = _picks["result"]
+        judged = {r["symbol"] for r in (res or {}).get("rows", []) + (res or {}).get("skipped", [])}
+        stale = time.time() - _picks["at"] > PICKS_FRESH or bool(res and set(robot.load()["stocks"]) - judged)
         if stale and not _picks["busy"]:
             _picks["busy"] = True
             threading.Thread(target=_run_picks, daemon=True).start()
@@ -483,10 +486,10 @@ _quotes: dict = {"at": 0.0, "key": None, "data": None}
 
 @app.get("/api/robot/prices")
 def api_robot_prices():
-    """Latest prices for the robot's open trades and suggestions (owner only), kept for 60 seconds.
+    """Latest prices for the robot's open trades, suggestions and chosen stocks (owner only), kept for 60 seconds.
     Zerodha when your own Kite Connect keys are set up, otherwise Yahoo (can be a few minutes late)."""
     s = robot.load()
-    syms = sorted({p["symbol"] for p in s["positions"]} | {x["symbol"] for x in s["pending"]})
+    syms = sorted({p["symbol"] for p in s["positions"]} | {x["symbol"] for x in s["pending"]} | set(s["stocks"]))
     if not syms:
         return ok({"prices": {}, "source": None})
     if _quotes["key"] == syms and time.time() - _quotes["at"] < 60:
