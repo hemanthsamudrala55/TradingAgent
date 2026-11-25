@@ -478,6 +478,35 @@ def api_picks():
     return ok({**res, "working": busy, "source": yahoo.SOURCE})
 
 
+_quotes: dict = {"at": 0.0, "key": None, "data": None}
+
+
+@app.get("/api/robot/prices")
+def api_robot_prices():
+    """Latest prices for the robot's open trades and suggestions (owner only), kept for 60 seconds.
+    Zerodha when your own Kite Connect keys are set up, otherwise Yahoo (can be a few minutes late)."""
+    s = robot.load()
+    syms = sorted({p["symbol"] for p in s["positions"]} | {x["symbol"] for x in s["pending"]})
+    if not syms:
+        return ok({"prices": {}, "source": None})
+    if _quotes["key"] == syms and time.time() - _quotes["at"] < 60:
+        return ok(_quotes["data"])
+    data = None
+    if os.environ.get("KITE_API_KEY") and kite.connected().get("connected"):
+        try:
+            now = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+            data = {"prices": {k: {"price": v, "time": now} for k, v in kite.ltp(syms).items()}, "source": kite.SOURCE}
+        except Exception:  # noqa: BLE001 - fall back to Yahoo
+            data = None
+    if data is None:
+        try:
+            data = {"prices": yahoo.ltp(syms), "source": yahoo.SOURCE + ", may be a few minutes late"}
+        except Exception as e:  # noqa: BLE001
+            return err(f"Could not get live prices: {e}", 502)
+    _quotes.update(at=time.time(), key=syms, data=data)
+    return ok(data)
+
+
 def _robot_daily(sym: str) -> pd.DataFrame:
     start = (pd.Timestamp.today() - pd.DateOffset(years=3)).strftime("%Y-%m-%d")
     return _prices(sym, lambda s, src: daily(s, src, start))[0]

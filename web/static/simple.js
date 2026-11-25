@@ -103,30 +103,78 @@ async function loadChart() {
 
 function openStock(sym) {
   view.symbol = sym.trim().toUpperCase();
-  $("#suggest").innerHTML = "";
+  closeSuggest();
   $("#q").value = "";
   loadChart();
 }
-$("#search").addEventListener("submit", e => {
-  e.preventDefault();
-  const first = $("#suggest button");
-  const typed = $("#q").value.trim();
-  if (first && typed.includes(" ")) openStock(first.dataset.sym);
-  else if (typed) openStock(typed);
-});
-let timer, searchRequest = 0;
+
+/* search dropdown: instant matches from stocks the page already knows, then Yahoo's search */
+let suggestions = [], active = -1, timer, searchRequest = 0, searching = false;
+const known = () => {
+  const price = Object.fromEntries((picks?.rows || []).map(r => [r.symbol, r.close]));
+  return [...new Set([...watchlist, ...(picks?.rows || []).map(r => r.symbol), ...(bot?.stocks || [])])].map(sym => ({ symbol: sym, name: "", price: price[sym] }));
+};
+function closeSuggest() {
+  suggestions = []; active = -1; searching = false;
+  $("#suggest").hidden = true; $("#suggest").innerHTML = "";
+  $("#q").setAttribute("aria-expanded", "false"); $("#q").removeAttribute("aria-activedescendant");
+}
+function renderSuggest() {
+  const q = $("#q").value.trim();
+  if (!q) return closeSuggest();
+  const items = suggestions.map((r, i) => `<li id="opt-${i}" role="option" class="${i === active ? "active" : ""}" aria-selected="${i === active}" data-sym="${esc(r.symbol)}">
+      <b>${esc(r.symbol)}</b><span class="muted">${esc(r.name)}</span>${r.price != null ? `<span class="opt-price">${inr(r.price)}</span>` : ""}</li>`).join("");
+  const tail = searching ? `<li class="note" aria-live="polite">Searching…</li>` : suggestions.length ? "" : `<li class="note">No matching NSE stock. Press Show to try "${esc(q.toUpperCase())}" anyway.</li>`;
+  $("#suggest").innerHTML = items + tail;
+  $("#suggest").hidden = false;
+  $("#q").setAttribute("aria-expanded", "true");
+  if (active >= 0) { $("#q").setAttribute("aria-activedescendant", "opt-" + active); $("#opt-" + active)?.scrollIntoView({ block: "nearest" }); }
+  else $("#q").removeAttribute("aria-activedescendant");
+}
+function merge(local, remote) {
+  const seen = new Map(local.map(r => [r.symbol, r]));
+  remote.forEach(r => seen.set(r.symbol, { ...(seen.get(r.symbol) || {}), symbol: r.symbol, name: r.name }));
+  return [...seen.values()].slice(0, 10);
+}
 $("#q").addEventListener("input", () => {
   clearTimeout(timer);
-  const q = $("#q").value.trim(), mine = ++searchRequest;
+  const q = $("#q").value.trim(), Q = q.toUpperCase(), mine = ++searchRequest;
+  if (!q) return closeSuggest();
+  const local = known().filter(r => r.symbol.startsWith(Q)).sort((a, b) => a.symbol.length - b.symbol.length || a.symbol.localeCompare(b.symbol)).slice(0, 6);
+  suggestions = local; active = local.length ? 0 : -1; searching = q.length >= 2;
+  renderSuggest();
+  if (q.length < 2) return;
   timer = setTimeout(async () => {
-    const res = q.length < 2 ? { results: [] } : await api(`/api/search?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] }));
-    if (mine === searchRequest) $("#suggest").innerHTML = res.results.map(r => `<button type="button" data-sym="${esc(r.symbol)}">${esc(r.symbol)} <span class="muted">${esc(r.name)}</span></button>`).join("");
-  }, 300);
+    const res = await api(`/api/search?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] }));
+    if (mine !== searchRequest) return;
+    suggestions = merge(local, res.results.map(r => ({ symbol: r.symbol, name: r.name })));
+    searching = false;
+    if (active < 0 && suggestions.length) active = 0;
+    renderSuggest();
+  }, 250);
 });
-$("#suggest").addEventListener("click", e => {
-  const b = e.target.closest("button");
-  if (b) openStock(b.dataset.sym);
+$("#q").addEventListener("keydown", e => {
+  if ($("#suggest").hidden) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!suggestions.length) return;
+    active = (active + (e.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length;
+    renderSuggest();
+  } else if (e.key === "Escape") { e.preventDefault(); closeSuggest(); }
 });
+$("#q").addEventListener("focus", () => { if ($("#q").value.trim()) $("#q").dispatchEvent(new Event("input")); });
+$("#search").addEventListener("submit", e => {
+  e.preventDefault();
+  const typed = $("#q").value.trim();
+  if (active >= 0 && suggestions[active]) openStock(suggestions[active].symbol);
+  else if (typed) openStock(typed);
+});
+$("#suggest").addEventListener("mousedown", e => {
+  const li = e.target.closest("[data-sym]");
+  if (li) { e.preventDefault(); openStock(li.dataset.sym); }
+});
+// clicks inside the search form (including the click Enter makes on Show) must not clear the choice first
+document.addEventListener("click", e => { if (!e.target.closest("#search")) closeSuggest(); });
 
 /* ---------- robot's picks ---------- */
 let picks = null, picksAll = false, picksTimer;
@@ -141,6 +189,7 @@ async function loadPicks() {
     }
     picks = p;
     renderPicks();
+    renderGrid();
     if (p.working) picksTimer = setTimeout(loadPicks, 8000);
   } catch (e) { $("#picks-note").textContent = e.message; }
 }
@@ -171,6 +220,51 @@ $("#picks-body").addEventListener("click", e => {
   if (b.dataset.pickRemove) save({ stocks: bot.stocks.filter(x => x !== b.dataset.pickRemove) });
 });
 
+/* ---------- budget grid (Robot tab) ---------- */
+let gridFilter = "near";
+const pct = (v, digits = 1) => (v >= 0 ? "" : "−") + Math.abs(v).toFixed(digits) + "%";
+function sizeFor(r) {
+  // the same sizing the robot uses when it buys: loss at the stop within your limit, and only money that is free
+  const free = bot.money + bot.realised - bot.positions.reduce((a, p) => a + p.qty * p.entry, 0);
+  const per = r.entry - r.stop, riskMoney = bot.money * bot.risk_pct / 100;
+  const qty = per > 0 ? Math.floor(Math.min(riskMoney / per, Math.max(free, 0) / r.entry)) : 0;
+  const why = qty > 0 ? "" : r.entry > free ? "One share costs more than your free money" : "Even 1 share risks more than your loss limit";
+  return { qty, cost: qty * r.entry, why, free };
+}
+function renderGrid() {
+  if (!bot || !$("#grid")) return;
+  $("#grid-filter").innerHTML = [["near", "Near a buy"], ["plan", "All with a plan"], ["mine", "Robot's stocks"]]
+    .map(([k, t]) => `<button class="${gridFilter === k ? "on" : ""}" data-filter="${k}" aria-pressed="${gridFilter === k}">${t}</button>`).join("");
+  if (!picks) { $("#grid").innerHTML = ""; $("#grid-note").textContent = "Working out the suggestions…"; return; }
+  let rows = picks.rows.filter(r => r.entry != null && (gridFilter === "plan" || (gridFilter === "near" ? r.group !== "later" : bot.stocks.includes(r.symbol))));
+  rows = rows.map(r => ({ ...r, gainPct: r.target ? (r.target - r.entry) / r.entry * 100 : null, lossPct: (r.entry - r.stop) / r.entry * 100, awayPct: (r.close - r.entry) / r.close * 100, size: sizeFor(r) }));
+  const key = { near: r => r.score, gain: r => -(r.gainPct ?? -99), loss: r => r.lossPct, ratio: r => -((r.gainPct ?? 0) / r.lossPct) }[$("#grid-sort").value];
+  rows.sort((a, b) => key(a) - key(b));
+  const most = Math.max(1, ...rows.map(r => r.size.cost / bot.money * 100));
+  $("#grid").innerHTML = `<thead><tr><th scope="col">Stock</th><th scope="col">Price now</th><th scope="col">Robot buys near</th><th scope="col">Gain at target</th><th scope="col">Loss at stop</th><th scope="col">Shares</th><th scope="col">Uses of your money</th><th scope="col"><span class="sr">Add or remove</span></th></tr></thead><tbody>`
+    + (rows.length ? rows.map(r => {
+      const on = bot.stocks.includes(r.symbol), z = r.size, share = z.cost / bot.money * 100;
+      return `<tr><td><button class="link" data-pick-open="${esc(r.symbol)}">${esc(r.symbol)}</button><small><span class="tag ${r.group}">${esc(r.title)}</span></small></td>
+        <td>${inr(r.close)}</td>
+        <td>${inr(r.entry)}<small>${r.awayPct > 0.05 ? pct(r.awayPct) + " below now" : "at today's price"}</small></td>
+        <td class="gain">${r.gainPct == null ? "—" : "+" + pct(r.gainPct)}<small>${r.target ? inr(r.target) + (z.qty ? " · +" + whole(z.qty * (r.target - r.entry)) : "") : ""}</small></td>
+        <td class="loss">−${pct(r.lossPct).replace("−", "")}<small>${inr(r.stop)}${z.qty ? " · −" + whole(z.qty * (r.entry - r.stop)) : ""}</small></td>
+        <td>${z.qty || "0"}<small>${z.qty ? whole(z.cost) : esc(z.why)}</small></td>
+        <td><span class="bar" style="width:${Math.round(share / most * 60)}px"></span>${pct(share)}</td>
+        <td><button class="${on ? "" : "dark"}" data-grid-${on ? "remove" : "add"}="${esc(r.symbol)}">${on ? "Remove" : "Add"}</button></td></tr>`;
+    }).join("") : `<tr><td colspan="8">No stocks to show here. Try "All with a plan".</td></tr>`) + "</tbody>";
+  $("#grid-note").textContent = `Gain and loss are for the robot's target and safety stop. Shares use ${bot.risk_pct}% of ${whole(bot.money)} as the most one trade may lose, and only your free money (${whole(Math.max(sizeFor({ entry: 1, stop: 0 }).free, 0))}). A price gap can make the loss bigger. Prices up to ${picks.as_of}.`;
+}
+$("#grid-filter").addEventListener("click", e => { const b = e.target.closest("[data-filter]"); if (b) { gridFilter = b.dataset.filter; renderGrid(); } });
+$("#grid-sort").addEventListener("change", renderGrid);
+$("#grid").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.pickOpen) { show("stocks"); openStock(b.dataset.pickOpen); }
+  if (b.dataset.gridAdd) save({ stocks: [...bot.stocks, b.dataset.gridAdd] });
+  if (b.dataset.gridRemove) save({ stocks: bot.stocks.filter(x => x !== b.dataset.gridRemove) });
+});
+
 /* ---------- robot ---------- */
 let bot = null;
 const MODES = [
@@ -185,7 +279,8 @@ const LIMITS = [
   ["max_open", "Trades open at once", [[3, "3", () => "Fewer stocks"], [5, "5", () => "Balanced"], [8, "8", () => "More stocks"]]],
 ];
 
-function setBot(s) { bot = s; renderBot(); }
+const tradeKey = s => s ? [...s.positions, ...s.pending].map(p => p.symbol).sort().join() : null;
+function setBot(s) { const changed = tradeKey(bot) !== tradeKey(s); bot = s; renderBot(); if (changed) loadQuotes(); }
 const save = patch => api("/api/robot/settings", patch).then(setBot);
 
 function renderWatch() {
@@ -218,6 +313,7 @@ function renderBot() {
   renderWatch();
   renderActivity();
   renderPicks();
+  renderGrid();
 }
 
 function renderLive() {
@@ -256,12 +352,49 @@ $("#money").addEventListener("change", async () => {
 });
 
 /* ---------- activity ---------- */
+let quotes = { prices: {}, source: null }, quoteTimer;
+async function loadQuotes() {
+  clearTimeout(quoteTimer);
+  if (!owner || !bot || (!bot.positions.length && !bot.pending.length)) return;
+  try { quotes = await api("/api/robot/prices"); $("#live-note").textContent = ""; }
+  catch (e) { $("#live-note").textContent = e.message; }
+  renderActivity();
+  quoteTimer = setTimeout(loadQuotes, 60000);
+}
+const signed = v => (v >= 0 ? "+" : "−") + inr(Math.abs(v)).replace("₹", "₹");
 function renderActivity() {
   const s = bot, invested = s.positions.reduce((a, p) => a + p.qty * p.entry, 0);
+  const now = p => quotes.prices[p.symbol]?.price;
+  const valueNow = s.positions.reduce((a, p) => a + p.qty * (now(p) ?? p.entry), 0), open = valueNow - invested;
   const money = s.live || s.positions.some(p => p.live) ? "Money" : "Pretend money";
-  $("#totals").innerHTML = `<div><span class="muted small">${money} free within your limit</span><b>${inr(s.money + s.realised - invested)}</b></div><div><span class="muted small">In open trades</span><b>${inr(invested)}</b></div><div><span class="muted small">Closed pretend trades, gain or loss</span><b class="${s.realised >= 0 ? "pos" : "neg"}">${inr(s.realised)}</b></div>`;
+  $("#totals").innerHTML = `<div><span class="muted small">${money} free within your limit</span><b>${inr(s.money + s.realised - invested)}</b></div>
+    <div><span class="muted small">Put into open trades</span><b>${inr(invested)}</b></div>
+    <div><span class="muted small">Open trades are worth now</span><b>${inr(valueNow)}</b></div>
+    <div><span class="muted small">Open profit or loss</span><b class="${open >= 0 ? "pos" : "neg"}">${signed(open)}${invested ? ` (${pct(open / invested * 100)})` : ""}</b></div>
+    <div><span class="muted small">Closed trades, gain or loss</span><b class="${s.realised >= 0 ? "pos" : "neg"}">${signed(s.realised)}</b></div>`;
   const LIVE = { ordered: "Real order sent, waiting to fill", protected: "Real trade, stop-loss set at Zerodha", unprotected: "Real trade with NO stop-loss: set one in Kite now" };
-  $("#open").innerHTML = s.positions.map(p => `<article class="card"><div class="meta"><span>${p.live ? "Ordered" : "Bought"} ${esc(p.date)}</span><span class="${p.status === "unprotected" ? "no" : ""}">${p.live ? LIVE[p.status] || "Real trade" : "Open pretend trade"}</span></div><div class="entry-title">${p.qty} ${esc(p.symbol)} at ${p.live && p.status === "ordered" ? "up to " : ""}${inr(p.entry)}</div><p>Sells near ${inr(p.target)} for a gain, or near ${inr(p.stop)} to limit the loss.</p></article>`).join("");
+  const q0 = Object.values(quotes.prices)[0];
+  $("#live-note").textContent = s.positions.length ? (quotes.source ? `Live prices from ${quotes.source}${q0 ? ", at " + new Date(q0.time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : ""}. Updates every minute.` : "Getting live prices…") : "";
+  const days = d => Math.max(0, Math.round((Date.now() - new Date(d)) / 864e5));
+  $("#open").innerHTML = s.positions.length ? s.positions.map(p => {
+    const price = now(p), cost = p.qty * p.entry, pl = price == null ? null : (price - p.entry) * p.qty;
+    const span = p.target - p.stop, at = price == null ? null : Math.min(100, Math.max(0, (price - p.stop) / span * 100));
+    return `<article class="card"><div class="meta"><span>${p.live ? "Ordered" : "Bought"} ${esc(p.date)} · ${days(p.date)} days ago</span><span class="${p.status === "unprotected" ? "no" : ""}">${p.live ? LIVE[p.status] || "Real trade" : "Open pretend trade"}</span></div>
+      <div class="between"><div class="entry-title">${esc(p.symbol)} · ${p.qty} shares</div>
+      <div class="pl ${pl == null ? "" : pl >= 0 ? "pos" : "neg"}">${pl == null ? "Price unavailable" : `${signed(pl)} (${pct(pl / cost * 100)})`}</div></div>
+      <div class="trade-grid">
+        <div><span>Bought at</span><b>${inr(p.entry)}</b></div><div><span>Price now</span><b>${price == null ? "—" : inr(price)}</b></div>
+        <div><span>Put in</span><b>${inr(cost)}</b></div><div><span>Worth now</span><b>${price == null ? "—" : inr(price * p.qty)}</b></div>
+        <div><span>Sells for a gain at</span><b class="gain">${inr(p.target)}</b><span>${price == null ? "" : pct((p.target - price) / price * 100) + " away · +" + whole((p.target - p.entry) * p.qty)}</span></div>
+        <div><span>Sells to limit loss at</span><b class="loss">${inr(p.stop)}</b><span>${price == null ? "" : pct((price - p.stop) / price * 100) + " away · −" + whole((p.entry - p.stop) * p.qty)}</span></div>
+      </div>
+      ${at == null ? "" : `<div class="track" role="img" aria-label="Price is ${Math.round(at)}% of the way from the stop to the target"><i style="left:calc(${at}% - 2px)"></i></div><div class="track-labels"><span>Stop ${inr(p.stop)}</span><span>Target ${inr(p.target)}</span></div>`}
+      <p class="muted small" style="margin-top:8px">${p.live ? "Zerodha sells it when a price hits the stop or target." : "Pretend trades are settled on finished daily candles: it sells on the first day the price touches the stop or the target."}</p></article>`;
+  }).join("") : `<section class="card"><p class="muted">No open trades.</p></section>`;
+  $("#closed-card").hidden = !s.closed.length;
+  $("#closed").innerHTML = `<thead><tr><th scope="col">Stock</th><th scope="col">Bought</th><th scope="col">Sold</th><th scope="col">Shares</th><th scope="col">Buy price</th><th scope="col">Sell price</th><th scope="col">Gain or loss</th></tr></thead><tbody>`
+    + s.closed.slice(0, 100).map(c => `<tr><td>${esc(c.symbol)}${c.live ? " <small>real</small>" : ""}</td><td>${esc(c.bought)}</td><td>${esc(c.date)}</td><td>${c.qty ?? "—"}</td><td>${c.entry == null ? "—" : inr(c.entry)}</td><td>${c.exit == null ? "—" : inr(c.exit)}</td>
+      <td class="${c.gain == null ? "" : c.gain >= 0 ? "gain" : "loss"}">${c.gain == null ? "Check in Kite" : signed(c.gain) + (c.entry && c.qty ? ` (${pct(c.gain / (c.entry * c.qty) * 100)})` : "")}</td></tr>`).join("") + "</tbody>";
   $("#pending").innerHTML = s.pending.map(x => `<article class="card"><div class="meta"><span>${esc(x.date)}</span><span>Needs your answer</span></div><div class="entry-title">Suggestion: buy ${x.qty} ${esc(x.symbol)}</div><p>${esc(x.why)}</p>
     <div class="ticket"><div><span>Buy</span><b>${x.qty} ${esc(x.symbol)} at about ${inr(x.entry)}</b></div><div><span>Sell for a gain near</span><b>${inr(x.target)}</b></div><div><span>Sell to limit the loss near</span><b>${inr(x.stop)}</b></div><div><span>Most it could lose</span><b>${inr(x.max_loss)}</b></div></div>
     ${s.live ? `<p class="live-on" style="margin-top:10px">REAL ORDER. Approving sends a limit buy to Zerodha at ${inr(x.entry)} or less. If it fills, a stop-loss and target are set at Zerodha.</p>

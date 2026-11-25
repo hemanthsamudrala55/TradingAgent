@@ -75,3 +75,38 @@ def test_picks_endpoint_is_public(monkeypatch):
     monkeypatch.setitem(webapp._picks, "at", 1e18)
     r = webapp.app.test_client().get("/api/picks")
     assert r.status_code == 200 and r.get_json()["rows"] == []
+
+
+def test_picks_carry_the_robots_levels_for_budget_sizing():
+    r = picks.judge("X", df(), CFG, lambda d, c: {**zone_plan(support_tested=True),
+                                                 "plan": {"entry": 98.0, "stop": 94.0, "t1": {"price": 108.0}}})
+    assert (r["entry"], r["stop"], r["target"]) == (98.0, 94.0, 108.0)
+    assert "entry" not in picks.judge("X", df(), CFG, lambda d, c: {"verdict": pos.AVOID, "confirmed": True})
+
+
+def test_prices_endpoint_is_owner_only_and_uses_yahoo(monkeypatch, tmp_path):
+    from werkzeug.security import generate_password_hash
+    from master_agent import robot
+    from master_agent.data import yahoo
+    from web import app as webapp
+    monkeypatch.setattr(robot, "STATE_FILE", tmp_path / "robot.json")
+    s = robot.load()
+    s["positions"] = [{"symbol": "AAA", "qty": 10, "entry": 100.0, "stop": 95.0, "target": 110.0, "date": "2026-11-20"}]
+    robot._save(s)
+    monkeypatch.setattr(yahoo, "ltp", lambda syms: {x: {"price": 103.5, "time": "2026-11-25T10:00:00+05:30"} for x in syms})
+    monkeypatch.setitem(webapp._quotes, "at", 0.0)
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("OWNER_PASSWORD_HASH", raising=False)
+    r = webapp.app.test_client().get("/api/robot/prices").get_json()
+    assert r["prices"]["AAA"]["price"] == 103.5
+    monkeypatch.setenv("OWNER_PASSWORD_HASH", generate_password_hash("x" * 12))
+    assert webapp.app.test_client().get("/api/robot/prices").status_code == 401
+
+
+def test_closed_trade_keeps_shares_and_prices():
+    from master_agent import robot
+    p = {"symbol": "AAA", "qty": 10, "entry": 100.0, "stop": 95.0, "target": 110.0, "date": "2026-11-20"}
+    s = {"positions": [p], "closed": []}
+    robot._close(s, p, "2026-11-24", 100.0)
+    c = s["closed"][0]
+    assert (c["qty"], c["entry"], c["exit"], c["gain"]) == (10, 100.0, 110.0, 100.0)

@@ -25,16 +25,13 @@
   <section id="tab-stocks" class="tab">
     <form id="search" class="search" autocomplete="off">
       <label for="q">Find a stock</label>
-      <input id="q" placeholder="Type a name, like TCS or Infosys">
+      <div class="combo">
+        <input id="q" placeholder="Type a name, like TCS or Infosys" role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
+        <ul id="suggest" class="dropdown" role="listbox" aria-label="Matching stocks" hidden></ul>
+      </div>
       <button class="dark" type="submit">Show</button>
     </form>
-    <div id="suggest" class="chips"></div>
     <div id="chart-error" class="error" role="alert" hidden></div>
-    <section class="card" id="picks" aria-labelledby="picks-title">
-      <div class="between"><h2 id="picks-title">Robot's picks</h2><button id="picks-more" class="link" type="button" hidden></button></div>
-      <p id="picks-note" class="muted small"></p>
-      <div id="picks-body" class="picks"></div>
-    </section>
     <div class="columns">
       <section class="card chart-card" aria-label="Price chart">
         <div class="headline"><h1 id="stock"></h1><div id="price" class="price"></div><div id="change"></div></div>
@@ -62,6 +59,11 @@
         </section>
       </aside>
     </div>
+    <section class="card" id="picks" aria-labelledby="picks-title">
+      <div class="between"><h2 id="picks-title">Robot's picks</h2><button id="picks-more" class="link" type="button" hidden></button></div>
+      <p id="picks-note" class="muted small"></p>
+      <div id="picks-body" class="picks"></div>
+    </section>
   </section>
 
   <section id="tab-robot" class="tab narrow">
@@ -88,7 +90,16 @@
     <section class="card">
       <h2>4. Which stocks can it trade?</h2>
       <div id="stocks" class="chips"></div>
-      <p class="muted small">Add more from the Stocks screen. Robot's picks there shows which stocks are near a buy.</p>
+      <h3 class="grid-title">Stocks that fit your budget</h3>
+      <p class="muted small">The robot's buying rules, sized to your money and loss limit above. Add a stock and the robot trades it when its rules are met.</p>
+      <div class="grid-tools">
+        <div id="grid-filter" class="row" role="group" aria-label="Which stocks to show"></div>
+        <label class="small">Sort by <select id="grid-sort">
+          <option value="near">Nearest to a buy</option><option value="gain">Biggest gain %</option>
+          <option value="loss">Smallest loss %</option><option value="ratio">Best gain for the risk</option></select></label>
+      </div>
+      <div class="grid-wrap"><table id="grid" class="grid"></table></div>
+      <p id="grid-note" class="muted small"></p>
     </section>
     <section class="card">
       <h2>5. Safety limits</h2>
@@ -106,13 +117,16 @@
     <div class="between"><h1>What the robot did</h1><button id="check">Check now</button></div>
     <div id="check-note" class="muted small"></div>
     <section class="card totals" id="totals"></section>
+    <div class="between"><h2 class="sub">Open trades</h2><span id="live-note" class="muted small"></span></div>
     <div id="open"></div>
     <div id="pending"></div>
+    <section id="closed-card" class="card" hidden><h2>Closed trades</h2><div class="grid-wrap"><table id="closed" class="grid"></table></div></section>
+    <h2 class="sub">Every decision</h2>
     <div id="log"></div>
   </section>
 </main>
 
-<footer><a class="owner-only" href="/advanced">Advanced view</a><span class="muted">Real orders are sent only when you switch them on and confirm each one.</span></footer>
+<footer><span class="muted">Real orders are sent only when you switch them on and confirm each one.</span></footer>
 <script src="/static/simple.js"></script>
 </body>
 </html>

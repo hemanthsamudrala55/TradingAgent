@@ -27,8 +27,7 @@ def judge(sym: str, df: pd.DataFrame, cfg: dict, plan=pos.plan) -> dict:
         return {**row, "group": "later", "score": 99, "title": "Not enough history", "text": "Too little price history to judge."}
     if v == pos.ENTER:
         pl = p["plan"]
-        return {**row, "group": "ready", "score": -1, "title": "Ready now", "entry": pl["entry"], "stop": pl["stop"],
-                "target": pl["t1"]["price"],
+        return {**row, **_levels(pl), "group": "ready", "score": -1, "title": "Ready now",
                 "text": f"Buying rules met near {_money(pl['entry'])}. It would sell near {_money(pl['t1']['price'])} for a gain, "
                         f"or near {_money(pl['stop'])} to limit the loss."}
     if v == pos.CHASE:
@@ -55,7 +54,16 @@ def judge(sym: str, df: pd.DataFrame, cfg: dict, plan=pos.plan) -> dict:
                 f"({_money(pull['entry_zone'][0])} to {_money(pull['entry_zone'][1])}). Waiting for a dip.")
     else:
         score, text = 20, "Upward trend, but no clear floor to buy at yet."
-    return {**row, "group": "close" if score <= CLOSE_ATR else "later", "score": round(score, 2), "title": "Getting close" if score <= CLOSE_ATR else "Wait", "text": text}
+    pl = brk if score == 0.3 else p.get("plan")
+    return {**row, **_levels(pl), "group": "close" if score <= CLOSE_ATR else "later", "score": round(score, 2),
+            "title": "Getting close" if score <= CLOSE_ATR else "Wait", "text": text}
+
+
+def _levels(pl: dict | None) -> dict:
+    """The buy, stop and target the robot would use, so the page can size it to your budget."""
+    if not pl or pl.get("entry") is None or pl.get("stop") is None or pl["entry"] <= pl["stop"]:
+        return {}
+    return {"entry": pl["entry"], "stop": pl["stop"], "target": (pl.get("t1") or {}).get("price")}
 
 
 def scan(symbols: list[str], get_daily: Callable[[str], pd.DataFrame], now: datetime | None = None,

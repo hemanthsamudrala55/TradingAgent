@@ -177,6 +177,8 @@ def _buy(s: dict, sym: str, qty: int, entry: float, stop: float, target: float, 
 def _close(s: dict, p: dict, date: str, gain: float | None) -> None:
     s["positions"].remove(p)
     s["closed"].insert(0, {"symbol": p["symbol"], "bought": p["date"], "date": date, "gain": None if gain is None else round(gain, 2),
+                           "qty": p["qty"], "entry": p["entry"],
+                           "exit": None if gain is None or not p["qty"] else round(p["entry"] + gain / p["qty"], 2),
                            "max_loss": round(p["qty"] * (p["entry"] - p["stop"]), 2), "live": bool(p.get("live"))})
     del s["closed"][500:]
 

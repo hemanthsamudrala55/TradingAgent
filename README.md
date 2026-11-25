@@ -54,6 +54,8 @@ screen with Yahoo prices. The robot, its trades and Zerodha need the owner login
 
 ## Advanced view (`/advanced`)
 
+Hidden from the main page for now. The owner can still open `/advanced` directly.
+
 | Tab | What it does |
 |---|---|
 | Analyze | Ask in plain language ("positional trading", "support and resistance", "fundamentals", "ROCE ROE debt-to-equity", "compare TCS vs INFY"). Shows only what you asked for (Master Instruction modes A-F). Upload your own chart CSV to check levels against it. |
