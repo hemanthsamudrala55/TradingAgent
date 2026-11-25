@@ -30,6 +30,11 @@
     </form>
     <div id="suggest" class="chips"></div>
     <div id="chart-error" class="error" role="alert" hidden></div>
+    <section class="card" id="picks" aria-labelledby="picks-title">
+      <div class="between"><h2 id="picks-title">Robot's picks</h2><button id="picks-more" class="link" type="button" hidden></button></div>
+      <p id="picks-note" class="muted small"></p>
+      <div id="picks-body" class="picks"></div>
+    </section>
     <div class="columns">
       <section class="card chart-card" aria-label="Price chart">
         <div class="headline"><h1 id="stock"></h1><div id="price" class="price"></div><div id="change"></div></div>
@@ -83,7 +88,7 @@
     <section class="card">
       <h2>4. Which stocks can it trade?</h2>
       <div id="stocks" class="chips"></div>
-      <p class="muted small">Add more from the Stocks screen.</p>
+      <p class="muted small">Add more from the Stocks screen. Robot's picks there shows which stocks are near a buy.</p>
     </section>
     <section class="card">
       <h2>5. Safety limits</h2>

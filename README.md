@@ -25,7 +25,7 @@ The main page has three plain-language screens:
 
 | Screen | What it does |
 |---|---|
-| Stocks | Search any NSE stock. Candles and volume by Hour, Day, Month, Quarter, Half-year or Year. |
+| Stocks | Search any NSE stock. Candles and volume by Hour, Day, Month, Quarter, Half-year or Year. Robot's picks lists which of about 50 big NSE stocks (`config/universe.yaml`) are ready to buy or getting close, by the robot's rules. |
 | Robot | Set the mode, money, loss limit and stocks. Practice and Ask me first work. Automatic is locked. |
 | Activity | Every decision and its reason, with Approve or Skip for suggestions. |
 

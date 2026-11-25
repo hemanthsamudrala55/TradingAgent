@@ -16,7 +16,7 @@ from flask import Flask, jsonify, redirect, render_template, request
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from master_agent import config, frames, fundamentals, levels, portfolio, positional, robot, router, simulate, technical  # noqa: E402
+from master_agent import config, frames, fundamentals, levels, picks, portfolio, positional, robot, router, simulate, technical  # noqa: E402
 from master_agent import data as mdata  # noqa: E402
 from master_agent.data import benchmarks, kite, nse_delivery, yahoo  # noqa: E402
 from web import auth  # noqa: E402
@@ -436,6 +436,46 @@ def api_search():
         return ok({"results": []})
     return ok({"results": [{"symbol": x["symbol"][:-3], "name": x.get("longname") or x.get("shortname") or ""}
                            for x in quotes if str(x.get("symbol", "")).endswith(".NS")]})
+
+
+_picks = {"at": 0.0, "result": None, "busy": False, "error": None}
+_picks_lock = threading.Lock()
+PICKS_FRESH = 30 * 60
+
+
+def _picks_symbols() -> list[str]:
+    syms = yaml.safe_load((ROOT / "config" / "universe.yaml").read_text())["symbols"]
+    syms += yaml.safe_load((ROOT / "config" / "watchlist.yaml").read_text())["symbols"]
+    return sorted({str(s).strip().upper() for s in syms if str(s).strip()})
+
+
+def _run_picks():
+    start = (pd.Timestamp.today() - pd.DateOffset(years=3)).strftime("%Y-%m-%d")
+    try:
+        res = picks.scan(_picks_symbols(), lambda s: daily(s, "yahoo", start))
+        with _picks_lock:
+            _picks.update(result=res, at=time.time(), error=None)
+    except Exception as e:  # noqa: BLE001
+        with _picks_lock:
+            _picks["error"] = str(e)
+    finally:
+        with _picks_lock:
+            _picks["busy"] = False
+
+
+@app.get("/api/picks")
+def api_picks():
+    """Stocks nearest to the robot's buying rules, from Yahoo prices (same for owner and visitors).
+    Worked out in the background and kept for 30 minutes; the page asks again while it says working."""
+    with _picks_lock:
+        stale = time.time() - _picks["at"] > PICKS_FRESH
+        if stale and not _picks["busy"]:
+            _picks["busy"] = True
+            threading.Thread(target=_run_picks, daemon=True).start()
+        res, busy, error = _picks["result"], _picks["busy"], _picks["error"]
+    if res is None:
+        return err(f"Could not work out the picks: {error}", 502) if error and not busy else ok({"working": True})
+    return ok({**res, "working": busy, "source": yahoo.SOURCE})
 
 
 def _robot_daily(sym: str) -> pd.DataFrame:

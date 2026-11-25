@@ -82,3 +82,9 @@ button.link { min-height: 44px; padding: 0 4px; border: 0; background: none; col
 button.link:hover:not(:disabled) { background: none; }
 .login { margin-top: 48px; display: flex; flex-direction: column; gap: 14px; }
 .login form { display: flex; flex-direction: column; gap: 10px; } .login label { font-weight: 600; }
+.picks { display: flex; flex-direction: column; margin-top: 8px; }
+.pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 0; border-top: 1px solid var(--line); }
+.pick .sym { min-width: 120px; } .pick p { flex: 1 1 280px; font-size: 15px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 13px; font-weight: 700; background: var(--selected); }
+.tag.ready { background: #DDF3EF; color: var(--up); } .tag.close { background: #E3EBFB; color: var(--floor); }
+.pick .add { min-height: 40px; }

@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from flask import Flask, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash
 
-PUBLIC = {"simple", "static", "api_chart", "api_search", "status", "login", "logout"}
+PUBLIC = {"simple", "static", "api_chart", "api_search", "api_picks", "status", "login", "logout"}
 MAX_FAILURES, WINDOW = 5, 15 * 60
 _failures: dict[str, list[float]] = {}
 

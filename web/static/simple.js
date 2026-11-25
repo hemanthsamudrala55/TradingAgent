@@ -128,12 +128,55 @@ $("#suggest").addEventListener("click", e => {
   if (b) openStock(b.dataset.sym);
 });
 
+/* ---------- robot's picks ---------- */
+let picks = null, picksAll = false, picksTimer;
+async function loadPicks() {
+  clearTimeout(picksTimer);
+  try {
+    const p = await api("/api/picks");
+    if (p.working && !p.rows) {
+      $("#picks-note").textContent = "Looking through about 50 big NSE stocks with the robot's buying rules. This takes up to a minute the first time…";
+      picksTimer = setTimeout(loadPicks, 4000);
+      return;
+    }
+    picks = p;
+    renderPicks();
+    if (p.working) picksTimer = setTimeout(loadPicks, 8000);
+  } catch (e) { $("#picks-note").textContent = e.message; }
+}
+function renderPicks() {
+  if (!picks) return;
+  const near = picks.rows.filter(r => r.group !== "later"), ready = near.filter(r => r.group === "ready").length;
+  const shown = picksAll ? picks.rows : near;
+  const others = picks.rows.length - near.length;
+  $("#picks-note").textContent = (ready ? `${ready} ready to buy now. ` : "Nothing meets the buying rules today. ")
+    + `Looked at ${picks.rows.length} stocks on finished daily candles up to ${picks.as_of}, from ${picks.source}.`
+    + (picks.skipped.length ? ` Skipped ${picks.skipped.length} with no prices.` : "")
+    + " This is not advice, only what the robot's rules see.";
+  const add = r => !owner || !bot ? "" : bot.stocks.includes(r.symbol)
+    ? `<button class="add" data-pick-remove="${esc(r.symbol)}" aria-label="Remove ${esc(r.symbol)} from the robot">Robot trades this ✓</button>`
+    : `<button class="add dark" data-pick-add="${esc(r.symbol)}">Let the robot trade this</button>`;
+  $("#picks-body").innerHTML = shown.length ? shown.map(r => `<div class="pick"><div class="sym"><button class="link" data-pick-open="${esc(r.symbol)}">${esc(r.symbol)}</button><div class="small muted">${inr(r.close)}</div></div>
+    <p><span class="tag ${r.group}">${esc(r.title)}</span> ${esc(r.text)}</p>${add(r)}</div>`).join("")
+    : `<p class="pick">No stock is near a buy today. The robot will keep waiting; that is normal.</p>`;
+  $("#picks-more").hidden = !others;
+  $("#picks-more").textContent = picksAll ? "Show only the near ones" : `Show all ${picks.rows.length}`;
+}
+$("#picks-more").addEventListener("click", () => { picksAll = !picksAll; renderPicks(); });
+$("#picks-body").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.pickOpen) { openStock(b.dataset.pickOpen); $("#chart").scrollIntoView({ behavior: "smooth", block: "center" }); }
+  if (b.dataset.pickAdd) save({ stocks: [...bot.stocks, b.dataset.pickAdd] });
+  if (b.dataset.pickRemove) save({ stocks: bot.stocks.filter(x => x !== b.dataset.pickRemove) });
+});
+
 /* ---------- robot ---------- */
 let bot = null;
 const MODES = [
   ["practice", "Practice", "Pretend money only. Nothing is sent to your broker."],
   ["ask", "Ask me first", "It suggests trades and waits for Approve. Pretend money, unless you switch on real orders below."],
-  ["auto", "Automatic (locked)", "Would trade on its own. Locked, because real orders are not built yet."],
+  ["auto", "Automatic (locked)", "Would trade on its own. Locked for safety: every real order needs your approval."],
 ];
 
 const LIMITS = [
@@ -174,6 +217,7 @@ function renderBot() {
   renderLive();
   renderWatch();
   renderActivity();
+  renderPicks();
 }
 
 function renderLive() {
@@ -274,4 +318,5 @@ window.addEventListener("focus", () => loadStatus().catch(() => {}));
   await loadStatus().catch(() => {});
   if (owner) setBot(await api("/api/robot"));
   loadChart();
+  loadPicks();
 })();
